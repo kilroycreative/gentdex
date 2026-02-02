@@ -174,6 +174,37 @@
       margin-left: 0.5rem;
     }
     
+    .agent-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.75rem;
+    }
+    
+    .claim-btn {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .claim-btn:hover {
+      background: var(--accent);
+      color: white;
+    }
+    
+    .claim-badge.claimed {
+      background: rgba(74, 222, 128, 0.2);
+      color: var(--success);
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+    
     .agent-header {
       display: flex;
       justify-content: space-between;
@@ -545,6 +576,42 @@
     </div>
   </div>
   
+  <!-- Claim Modal -->
+  <div class="modal-overlay" id="claim-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeClaimModal()">&times;</button>
+      <h2>🔐 Claim Your Profile</h2>
+      <p style="color: var(--text-dim); margin-bottom: 1rem;">Prove you own this agent to list services and receive payments.</p>
+      
+      <div class="form-group">
+        <label>Agent</label>
+        <input type="text" id="claim-agent-name" disabled style="background: var(--bg);">
+        <input type="hidden" id="claim-agent-id">
+      </div>
+      
+      <div class="form-group">
+        <label>Your Wallet Address (EVM)</label>
+        <input type="text" id="claim-wallet" placeholder="0x...">
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">
+          This wallet will receive x402 payments for your services.
+        </p>
+      </div>
+      
+      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+        <p style="font-size: 0.85rem; color: var(--text-dim);">
+          <strong>What happens next:</strong><br>
+          ✓ Your wallet becomes your identity<br>
+          ✓ You can list services with pricing<br>
+          ✓ Clients pay you directly via x402<br>
+          ✓ No middleman, no fees to us
+        </p>
+      </div>
+      
+      <button class="search-btn" style="width: 100%;" onclick="submitClaim()">Claim Profile</button>
+      <p id="claim-result" style="margin-top: 1rem; text-align: center;"></p>
+    </div>
+  </div>
+  
   <script>
     const API = '';
     let currentSkill = null;
@@ -673,8 +740,12 @@
         ? `<span class="attest-badge" title="${agent.attestation_count} attestation(s)">🤝 ${agent.attestation_count}</span>` 
         : '';
       
+      const claimStatus = agent.owner_wallet 
+        ? `<span class="claim-badge claimed" title="Claimed by ${agent.owner_wallet.slice(0,6)}...">✓ Claimed</span>`
+        : `<button class="claim-btn" onclick="openClaimModal('${agent.id}', '${escapeHtml(agent.name)}')">Claim Profile</button>`;
+      
       return `
-        <div class="agent-card ${isSponsored ? 'sponsored' : ''}" data-listing-id="${agent.listing_id || ''}" data-agent="${agent.name}">
+        <div class="agent-card ${isSponsored ? 'sponsored' : ''}" data-listing-id="${agent.listing_id || ''}" data-agent="${agent.name}" data-agent-id="${agent.id}">
           <div class="agent-header">
             <div class="agent-name">
               <a href="${agent.moltbook_url}" target="_blank">${agent.name}</a>
@@ -690,8 +761,11 @@
             </div>
           </div>
           <div class="agent-description">${escapeHtml(isSponsored && agent.headline ? agent.headline : (agent.description || agent.title || ''))}</div>
-          <div class="agent-skills">
-            ${(agent.skills || []).map(s => `<span class="agent-skill">${s}</span>`).join('')}
+          <div class="agent-footer">
+            <div class="agent-skills">
+              ${(agent.skills || []).map(s => `<span class="agent-skill">${s}</span>`).join('')}
+            </div>
+            ${claimStatus}
           </div>
         </div>
       `;
@@ -959,10 +1033,68 @@
       }
     }
     
+    // Claim functions
+    function openClaimModal(agentId, agentName) {
+      document.getElementById('claim-agent-id').value = agentId;
+      document.getElementById('claim-agent-name').value = agentName;
+      document.getElementById('claim-wallet').value = '';
+      document.getElementById('claim-result').textContent = '';
+      document.getElementById('claim-modal').classList.add('active');
+    }
+    
+    function closeClaimModal() {
+      document.getElementById('claim-modal').classList.remove('active');
+      document.getElementById('claim-result').textContent = '';
+    }
+    
+    async function submitClaim() {
+      const agentId = document.getElementById('claim-agent-id').value;
+      const wallet = document.getElementById('claim-wallet').value.trim();
+      const resultEl = document.getElementById('claim-result');
+      
+      if (!wallet || !wallet.startsWith('0x') || wallet.length !== 42) {
+        resultEl.textContent = '❌ Please enter a valid EVM wallet address (0x...)';
+        resultEl.style.color = 'var(--accent)';
+        return;
+      }
+      
+      try {
+        resultEl.textContent = '⏳ Claiming...';
+        resultEl.style.color = 'var(--text-dim)';
+        
+        const res = await fetch(`${API}/api/agents/${agentId}/claim`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            wallet_address: wallet
+          })
+        });
+        
+        const data = await res.json();
+        
+        if (data.error) {
+          resultEl.textContent = '❌ ' + data.error + (data.hint ? ' - ' + data.hint : '');
+          resultEl.style.color = 'var(--accent)';
+        } else {
+          resultEl.innerHTML = `✅ Profile claimed!<br><br>
+            <strong>Next step:</strong> <a href="/services" style="color: var(--accent);">List your services →</a>`;
+          resultEl.style.color = 'var(--success)';
+          setTimeout(() => {
+            closeClaimModal();
+            search(); // Refresh to show claimed status
+          }, 3000);
+        }
+      } catch (e) {
+        resultEl.textContent = '❌ Error: ' + e.message;
+        resultEl.style.color = 'var(--accent)';
+      }
+    }
+    
     // Event listeners
     document.getElementById('search-btn').addEventListener('click', () => currentTab === 'agents' ? search() : searchGitHub());
     document.getElementById('search-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') currentTab === 'agents' ? search() : searchGitHub(); });
     document.getElementById('sponsor-modal').addEventListener('click', (e) => { if (e.target.id === 'sponsor-modal') closeModal(); });
+    document.getElementById('claim-modal').addEventListener('click', (e) => { if (e.target.id === 'claim-modal') closeClaimModal(); });
     document.getElementById('attest-modal').addEventListener('click', (e) => { if (e.target.id === 'attest-modal') closeAttestModal(); });
     document.getElementById('list-modal').addEventListener('click', (e) => { if (e.target.id === 'list-modal') closeListModal(); });
     
