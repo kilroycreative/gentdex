@@ -316,9 +316,10 @@
       <h1>🦞 Gent<span>Dex</span></h1>
       <p class="tagline">Search engine for the agent internet</p>
       <div class="nav-buttons">
-        <button class="nav-btn" onclick="openListModal()">➕ List Your Agent</button>
+        <button class="nav-btn" id="tab-agents" onclick="switchTab('agents')" style="background: var(--accent); color: white;">🦞 Agents</button>
+        <button class="nav-btn" id="tab-github" onclick="switchTab('github')">🐙 GitHub</button>
+        <button class="nav-btn" onclick="openListModal()">➕ List</button>
         <button class="nav-btn primary" onclick="openSponsorModal()">📣 Sponsor</button>
-        <button class="nav-btn" onclick="openAttestModal()">🤝 Attest</button>
       </div>
     </header>
     
@@ -535,6 +536,7 @@
     let totalAgents = 0;
     let pageSize = 50;
     let selectedStrength = 3;
+    let currentTab = 'agents';
     
     // Load stats
     async function loadStats() {
@@ -700,7 +702,11 @@
     function loadPage(direction) {
       currentOffset += direction * pageSize;
       if (currentOffset < 0) currentOffset = 0;
-      search(false);
+      if (currentTab === 'agents') {
+        search(false);
+      } else {
+        searchGitHub();
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     
@@ -934,11 +940,96 @@
     }
     
     // Event listeners
-    document.getElementById('search-btn').addEventListener('click', search);
-    document.getElementById('search-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') search(); });
+    document.getElementById('search-btn').addEventListener('click', () => currentTab === 'agents' ? search() : searchGitHub());
+    document.getElementById('search-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') currentTab === 'agents' ? search() : searchGitHub(); });
     document.getElementById('sponsor-modal').addEventListener('click', (e) => { if (e.target.id === 'sponsor-modal') closeModal(); });
     document.getElementById('attest-modal').addEventListener('click', (e) => { if (e.target.id === 'attest-modal') closeAttestModal(); });
     document.getElementById('list-modal').addEventListener('click', (e) => { if (e.target.id === 'list-modal') closeListModal(); });
+    
+    // Tab switching
+    function switchTab(tab) {
+      currentTab = tab;
+      currentOffset = 0;
+      
+      document.getElementById('tab-agents').style.background = tab === 'agents' ? 'var(--accent)' : 'var(--surface)';
+      document.getElementById('tab-agents').style.color = tab === 'agents' ? 'white' : 'var(--text)';
+      document.getElementById('tab-github').style.background = tab === 'github' ? 'var(--accent)' : 'var(--surface)';
+      document.getElementById('tab-github').style.color = tab === 'github' ? 'white' : 'var(--text)';
+      
+      document.getElementById('skills-filter').style.display = tab === 'agents' ? 'flex' : 'none';
+      
+      if (tab === 'agents') {
+        search();
+      } else {
+        searchGitHub();
+      }
+    }
+    
+    // GitHub search
+    async function searchGitHub() {
+      const query = document.getElementById('search-input').value;
+      const resultsDiv = document.getElementById('results');
+      const startTime = performance.now();
+      resultsDiv.innerHTML = '<div class="loading">Searching GitHub repos...</div>';
+      
+      try {
+        let url = `${API}/api/github?limit=${pageSize}&offset=${currentOffset}`;
+        if (query) url += `&q=${encodeURIComponent(query)}`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+        const elapsed = Math.round(performance.now() - startTime);
+        
+        totalAgents = data.total;
+        const showing = data.repos.length;
+        const start = currentOffset + 1;
+        const end = currentOffset + showing;
+        
+        document.getElementById('results-count').textContent = 
+          `Showing ${start}-${end} of ${data.total} repo${data.total !== 1 ? 's' : ''}`;
+        document.getElementById('search-time').textContent = `${elapsed}ms`;
+        
+        // Update pagination
+        const pagination = document.getElementById('pagination');
+        if (data.total > pageSize) {
+          pagination.style.display = 'block';
+          const currentPage = Math.floor(currentOffset / pageSize) + 1;
+          const totalPages = Math.ceil(data.total / pageSize);
+          document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+          document.getElementById('prev-btn').disabled = currentOffset === 0;
+          document.getElementById('next-btn').disabled = (currentOffset + showing) >= data.total;
+        } else {
+          pagination.style.display = 'none';
+        }
+        
+        if (data.repos.length === 0) {
+          resultsDiv.innerHTML = `<div class="no-results"><p>No repos found.</p></div>`;
+          return;
+        }
+        
+        resultsDiv.innerHTML = data.repos.map(repo => `
+          <div class="agent-card">
+            <div class="agent-header">
+              <div class="agent-name">
+                <a href="${repo.url}" target="_blank">${repo.name}</a>
+                <span style="color: var(--premium); margin-left: 0.5rem;">⭐ ${repo.stars.toLocaleString()}</span>
+              </div>
+              <div class="agent-meta">
+                <span>${repo.language || 'Unknown'}</span>
+                <span>${repo.owner}</span>
+              </div>
+            </div>
+            <div class="agent-description">${escapeHtml(repo.description || '')}</div>
+            <div class="agent-skills">
+              ${(repo.topics || []).slice(0, 5).map(t => `<span class="agent-skill">${t}</span>`).join('')}
+            </div>
+          </div>
+        `).join('');
+        
+      } catch (e) {
+        resultsDiv.innerHTML = `<div class="no-results">Error: ${e.message}</div>`;
+      }
+    }
     
     // Initial load
     loadStats();

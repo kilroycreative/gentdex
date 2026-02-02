@@ -1039,6 +1039,39 @@ app.get('/api/skills', async (req, res) => {
   }
 });
 
+// Search GitHub repos
+app.get('/api/github', async (req, res) => {
+  try {
+    const { q, limit = 50, offset = 0 } = req.query;
+    
+    let query = supabase
+      .from('github_repos')
+      .select('*')
+      .order('stars', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+    
+    if (q) {
+      query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%,full_name.ilike.%${q}%`);
+    }
+    
+    const { data: repos, error } = await query;
+    if (error) throw error;
+    
+    const { count } = await supabase
+      .from('github_repos')
+      .select('*', { count: 'exact', head: true });
+    
+    res.json({
+      repos: repos || [],
+      total: count || 0,
+      offset: parseInt(offset),
+      limit: parseInt(limit),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get stats
 app.get('/api/stats', async (req, res) => {
   try {
