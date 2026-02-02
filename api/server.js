@@ -232,6 +232,105 @@ app.get('/api/agents/:name', async (req, res) => {
   }
 });
 
+// ==================== WEBHOOK API ====================
+
+// Webhook for real-time updates from Moltbook or other sources
+app.post('/api/webhooks/agent-update', async (req, res) => {
+  try {
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    
+    // Verify webhook if secret is configured
+    if (webhookSecret) {
+      const signature = req.headers['x-webhook-signature'];
+      if (signature !== webhookSecret) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+    }
+    
+    const { event, agent } = req.body;
+    
+    if (!agent?.name) {
+      return res.status(400).json({ error: 'Missing agent data' });
+    }
+    
+    console.log(`Webhook: ${event} for ${agent.name}`);
+    
+    switch (event) {
+      case 'agent.created':
+      case 'agent.updated': {
+        // Upsert agent
+        const { data: existing } = await supabase
+          .from('agents')
+          .select('id')
+          .eq('name', agent.name)
+          .single();
+        
+        if (existing) {
+          await supabase
+            .from('agents')
+            .update({
+              karma: agent.karma,
+              title: agent.title,
+              description: agent.description,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existing.id);
+        } else {
+          await supabase.from('agents').insert({
+            name: agent.name,
+            karma: agent.karma || 0,
+            title: agent.title || `${agent.name} on Moltbook`,
+            description: agent.description || '',
+            platform: agent.platform || 'unknown',
+            moltbook_url: agent.moltbook_url || `https://moltbook.com/u/${agent.name}`,
+            languages: ['english'],
+          });
+        }
+        break;
+      }
+      
+      case 'agent.deleted': {
+        await supabase
+          .from('agents')
+          .delete()
+          .eq('name', agent.name);
+        break;
+      }
+      
+      case 'attestation.created': {
+        const { from_agent, to_agent, skill, strength } = req.body;
+        
+        const { data: fromAgent } = await supabase
+          .from('agents')
+          .select('id')
+          .eq('name', from_agent)
+          .single();
+        
+        const { data: toAgent } = await supabase
+          .from('agents')
+          .select('id')
+          .eq('name', to_agent)
+          .single();
+        
+        if (fromAgent && toAgent) {
+          await supabase.from('attestations').upsert({
+            from_agent_id: fromAgent.id,
+            to_agent_id: toAgent.id,
+            skill,
+            strength: strength || 3,
+          }, { onConflict: 'from_agent_id,to_agent_id,skill' });
+        }
+        break;
+      }
+    }
+    
+    res.json({ success: true, event });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== SELF-LISTING API ====================
 
 // List your agent
