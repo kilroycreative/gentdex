@@ -1354,6 +1354,266 @@ app.post('/api/refresh', async (req, res) => {
   }
 });
 
+// ==================== SERVICES MARKETPLACE ====================
+
+// Get service categories
+app.get('/api/services/categories', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('service_categories')
+      .select('*')
+      .order('name');
+    
+    if (error) throw error;
+    res.json({ categories: data || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List services (with filtering)
+app.get('/api/services', async (req, res) => {
+  try {
+    const { category, agent_id, q, min_price, max_price, limit = 50, offset = 0 } = req.query;
+    
+    let query = supabase
+      .from('agent_services')
+      .select(`
+        *,
+        agents!inner(id, name, x_handle, is_verified, pagerank_score)
+      `)
+      .eq('is_active', true)
+      .order('total_jobs', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+    
+    if (category) query = query.eq('category', category);
+    if (agent_id) query = query.eq('agent_id', agent_id);
+    if (min_price) query = query.gte('price_usdc', parseFloat(min_price));
+    if (max_price) query = query.lte('price_usdc', parseFloat(max_price));
+    if (q) query = query.or(`name.ilike.%${q}%,description.ilike.%${q}%`);
+    
+    const { data: services, error } = await query;
+    if (error) throw error;
+    
+    // Get total count
+    let countQuery = supabase
+      .from('agent_services')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active', true);
+    if (category) countQuery = countQuery.eq('category', category);
+    
+    const { count } = await countQuery;
+    
+    res.json({
+      services: services || [],
+      total: count || 0,
+      offset: parseInt(offset),
+      limit: parseInt(limit),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get service by ID
+app.get('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data: service, error } = await supabase
+      .from('agent_services')
+      .select(`
+        *,
+        agents(id, name, description, x_handle, is_verified, pagerank_score, karma)
+      `)
+      .eq('id', id)
+      .single();
+    
+    if (error) throw error;
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    
+    // Get reviews
+    const { data: reviews } = await supabase
+      .from('service_reviews')
+      .select('*')
+      .eq('service_id', id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    
+    res.json({ service, reviews: reviews || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Register a service (agent lists their service)
+// Requires x402 payment OR wallet signature for verification
+app.post('/api/services', async (req, res) => {
+  try {
+    const { 
+      agent_id,
+      name,
+      description,
+      category,
+      price_usdc,
+      price_model = 'per_call',
+      payment_wallet,
+      payment_network = 'base',
+      api_endpoint,
+      api_docs_url,
+    } = req.body;
+    
+    // Validate required fields
+    if (!agent_id || !name || !description || !category || price_usdc === undefined) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        required: ['agent_id', 'name', 'description', 'category', 'price_usdc']
+      });
+    }
+    
+    // Verify agent exists
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, name')
+      .eq('id', agent_id)
+      .single();
+    
+    if (agentError || !agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    // Create service
+    const { data: service, error } = await supabase
+      .from('agent_services')
+      .insert({
+        agent_id,
+        name,
+        description,
+        category,
+        price_usdc: parseFloat(price_usdc),
+        price_model,
+        payment_wallet,
+        payment_network,
+        api_endpoint,
+        api_docs_url,
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.status(201).json({ 
+      message: 'Service listed successfully',
+      service,
+      note: 'Service is pending verification. Verify by signing with your registered wallet.'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update service
+app.patch('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    // Don't allow updating certain fields
+    delete updates.id;
+    delete updates.agent_id;
+    delete updates.total_jobs;
+    delete updates.total_revenue_usdc;
+    delete updates.created_at;
+    
+    updates.updated_at = new Date().toISOString();
+    
+    const { data: service, error } = await supabase
+      .from('agent_services')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    if (!service) return res.status(404).json({ error: 'Service not found' });
+    
+    res.json({ service });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add review (requires x402 payment proof)
+app.post('/api/services/:id/review', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      reviewer_wallet,
+      reviewer_agent_id,
+      rating,
+      review_text,
+      payment_tx_hash,
+      payment_amount,
+    } = req.body;
+    
+    if (!reviewer_wallet || !rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        required: ['reviewer_wallet', 'rating (1-5)']
+      });
+    }
+    
+    // Verify service exists
+    const { data: service, error: serviceError } = await supabase
+      .from('agent_services')
+      .select('id')
+      .eq('id', id)
+      .single();
+    
+    if (serviceError || !service) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    
+    // Create review
+    const { data: review, error } = await supabase
+      .from('service_reviews')
+      .insert({
+        service_id: id,
+        reviewer_wallet,
+        reviewer_agent_id,
+        rating: parseInt(rating),
+        review_text,
+        payment_tx_hash,
+        payment_amount: payment_amount ? parseFloat(payment_amount) : null,
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    // Update service average rating
+    const { data: allReviews } = await supabase
+      .from('service_reviews')
+      .select('rating')
+      .eq('service_id', id);
+    
+    if (allReviews && allReviews.length > 0) {
+      const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+      await supabase
+        .from('agent_services')
+        .update({ 
+          avg_rating: Math.round(avgRating * 100) / 100,
+          rating_count: allReviews.length,
+        })
+        .eq('id', id);
+    }
+    
+    res.status(201).json({ review });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve frontend
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '../web/index.html'));
