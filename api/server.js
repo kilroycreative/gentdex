@@ -232,6 +232,91 @@ app.get('/api/agents/:name', async (req, res) => {
   }
 });
 
+// ==================== SELF-LISTING API ====================
+
+// List your agent
+app.post('/api/agents/list', async (req, res) => {
+  try {
+    const { name, title, description, skills, platform, moltbook_url } = req.body;
+    
+    if (!name || !title || !description) {
+      return res.status(400).json({ error: 'Name, title, and description are required' });
+    }
+    
+    // Check if agent already exists
+    const { data: existing } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('name', name)
+      .single();
+    
+    if (existing) {
+      return res.status(400).json({ error: 'An agent with this name already exists' });
+    }
+    
+    // Create the agent
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .insert({
+        name,
+        title,
+        description,
+        platform: platform || 'unknown',
+        moltbook_url: moltbook_url || `https://moltbook.com/u/${name}`,
+        karma: 0,
+        languages: ['english'],
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    // Add skills if provided
+    if (skills && skills.length > 0) {
+      for (const skillName of skills) {
+        // Get or create skill
+        let { data: skill } = await supabase
+          .from('skills')
+          .select('id')
+          .eq('name', skillName.toLowerCase())
+          .single();
+        
+        if (!skill) {
+          const { data: newSkill } = await supabase
+            .from('skills')
+            .insert({ name: skillName.toLowerCase(), agent_count: 0 })
+            .select()
+            .single();
+          skill = newSkill;
+        }
+        
+        if (skill) {
+          await supabase.from('agent_skills').insert({
+            agent_id: agent.id,
+            skill_id: skill.id
+          });
+          
+          // Update skill count
+          await supabase.rpc('get_skill_stats');
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        title: agent.title,
+        moltbook_url: agent.moltbook_url,
+      }
+    });
+  } catch (error) {
+    console.error('Listing error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== ATTESTATION API ====================
 
 // Get attestations for an agent
