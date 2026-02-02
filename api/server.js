@@ -108,7 +108,8 @@ app.get('/api/search', async (req, res) => {
         is_verified,
         attestation_count,
         attestation_score,
-        pagerank_score
+        pagerank_score,
+        x_handle
       `)
       .order('pagerank_score', { ascending: false })
       .order('karma', { ascending: false })

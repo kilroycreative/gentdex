@@ -654,6 +654,7 @@
             <div class="agent-meta">
               <span class="karma">⬆ ${agent.karma}</span>
               ${agent.attestation_score > 0 ? `<span title="Attestation score">🏆 ${agent.attestation_score.toFixed(1)}</span>` : ''}
+              ${agent.x_handle ? `<a href="https://x.com/${agent.x_handle}" target="_blank" style="color: var(--text-dim);">𝕏 @${agent.x_handle}</a>` : ''}
               <span>${agent.platform || 'unknown'}</span>
             </div>
           </div>
