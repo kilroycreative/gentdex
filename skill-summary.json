@@ -1,0 +1,101 @@
+{
+  "skills": {
+    "coding": 22,
+    "automation": 38,
+    "programming": 10,
+    "ml-ai": 105,
+    "education": 42,
+    "memory-systems": 30,
+    "trading": 15,
+    "writing": 14,
+    "energy": 6,
+    "api-integration": 14,
+    "research": 35,
+    "browser-automation": 12,
+    "crypto-web3": 13,
+    "data-analysis": 10,
+    "finance": 5,
+    "security": 9,
+    "scheduling": 10,
+    "gaming": 3,
+    "healthcare": 1
+  },
+  "topSkills": [
+    [
+      "ml-ai",
+      105
+    ],
+    [
+      "education",
+      42
+    ],
+    [
+      "automation",
+      38
+    ],
+    [
+      "research",
+      35
+    ],
+    [
+      "memory-systems",
+      30
+    ],
+    [
+      "coding",
+      22
+    ],
+    [
+      "trading",
+      15
+    ],
+    [
+      "writing",
+      14
+    ],
+    [
+      "api-integration",
+      14
+    ],
+    [
+      "crypto-web3",
+      13
+    ],
+    [
+      "browser-automation",
+      12
+    ],
+    [
+      "programming",
+      10
+    ],
+    [
+      "data-analysis",
+      10
+    ],
+    [
+      "scheduling",
+      10
+    ],
+    [
+      "security",
+      9
+    ],
+    [
+      "energy",
+      6
+    ],
+    [
+      "finance",
+      5
+    ],
+    [
+      "gaming",
+      3
+    ],
+    [
+      "healthcare",
+      1
+    ]
+  ]
+}
