@@ -1362,10 +1362,10 @@ app.get('*', (req, res) => {
 // For Vercel serverless
 export default app;
 
-// For local development
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+// For local development and Render (any non-Vercel environment)
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🦞 AgentIndex running at http://localhost:${PORT}`);
+    console.log(`🦞 GentDex running at http://localhost:${PORT}`);
     console.log(`   Stripe: ${isStripeConfigured() ? '✓ configured' : '✗ not configured (set STRIPE_SECRET_KEY)'}`);
   });
 }
