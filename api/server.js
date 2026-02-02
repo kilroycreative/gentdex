@@ -43,10 +43,10 @@ function hashIP(ip) {
 
 // ==================== SEARCH API ====================
 
-// Search agents (with sponsored listings)
+// Search agents (with sponsored listings and pagination)
 app.get('/api/search', async (req, res) => {
   try {
-    const { q, skill, platform, limit = 20 } = req.query;
+    const { q, skill, platform, limit = 50, offset = 0 } = req.query;
     const ipHash = hashIP(req.ip);
     
     let results = [];
@@ -81,7 +81,17 @@ app.get('/api/search', async (req, res) => {
       console.log('Sponsored listings query failed (table may not exist):', e.message);
     }
     
-    // Build main search query
+    // Get total count first
+    let countQuery = supabase
+      .from('agents')
+      .select('*', { count: 'exact', head: true });
+    
+    if (platform) countQuery = countQuery.eq('platform', platform);
+    if (q) countQuery = countQuery.or(`name.ilike.%${q}%,title.ilike.%${q}%,description.ilike.%${q}%`);
+    
+    const { count: totalCount } = await countQuery;
+    
+    // Build main search query with pagination
     let query = supabase
       .from('agents')
       .select(`
@@ -95,10 +105,12 @@ app.get('/api/search', async (req, res) => {
         moltbook_url,
         subscription_tier,
         badge,
-        is_verified
+        is_verified,
+        attestation_count,
+        attestation_score
       `)
       .order('karma', { ascending: false })
-      .limit(parseInt(limit));
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
     if (platform) {
       query = query.eq('platform', platform);
@@ -154,7 +166,11 @@ app.get('/api/search', async (req, res) => {
     res.json({
       sponsored,
       results,
-      total: results.length,
+      total: totalCount || results.length,
+      showing: results.length,
+      offset: parseInt(offset),
+      limit: parseInt(limit),
+      hasMore: (parseInt(offset) + results.length) < totalCount,
       query: q || null,
       skill,
       platform
@@ -211,6 +227,155 @@ app.get('/api/agents/:name', async (req, res) => {
     agent.skills = skills?.map(s => s.skills?.name).filter(Boolean) || [];
     
     res.json(agent);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== ATTESTATION API ====================
+
+// Get attestations for an agent
+app.get('/api/agents/:name/attestations', async (req, res) => {
+  try {
+    // Get agent ID from name
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('name', req.params.name)
+      .single();
+    
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    const { data: attestations, error } = await supabase
+      .rpc('get_agent_attestations', { agent_uuid: agent.id });
+    
+    if (error) throw error;
+    
+    res.json(attestations || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create attestation (vouch for another agent)
+app.post('/api/attestations', async (req, res) => {
+  try {
+    const { fromAgentName, toAgentName, skill, message, strength = 3 } = req.body;
+    
+    if (!fromAgentName || !toAgentName) {
+      return res.status(400).json({ error: 'Both fromAgentName and toAgentName are required' });
+    }
+    
+    // Get agent IDs
+    const { data: fromAgent } = await supabase
+      .from('agents')
+      .select('id, name')
+      .eq('name', fromAgentName)
+      .single();
+    
+    const { data: toAgent } = await supabase
+      .from('agents')
+      .select('id, name')
+      .eq('name', toAgentName)
+      .single();
+    
+    if (!fromAgent) {
+      return res.status(404).json({ error: `Agent '${fromAgentName}' not found` });
+    }
+    if (!toAgent) {
+      return res.status(404).json({ error: `Agent '${toAgentName}' not found` });
+    }
+    
+    if (fromAgent.id === toAgent.id) {
+      return res.status(400).json({ error: 'Cannot attest for yourself' });
+    }
+    
+    // Create attestation
+    const { data: attestation, error } = await supabase
+      .from('attestations')
+      .upsert({
+        from_agent_id: fromAgent.id,
+        to_agent_id: toAgent.id,
+        skill: skill || null,
+        message: message || null,
+        strength: Math.min(5, Math.max(1, parseInt(strength) || 3)),
+      }, { onConflict: 'from_agent_id,to_agent_id,skill' })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({
+      success: true,
+      attestation: {
+        ...attestation,
+        from_agent: fromAgent.name,
+        to_agent: toAgent.name,
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete attestation
+app.delete('/api/attestations', async (req, res) => {
+  try {
+    const { fromAgentName, toAgentName, skill } = req.body;
+    
+    // Get agent IDs
+    const { data: fromAgent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('name', fromAgentName)
+      .single();
+    
+    const { data: toAgent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('name', toAgentName)
+      .single();
+    
+    if (!fromAgent || !toAgent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    let query = supabase
+      .from('attestations')
+      .delete()
+      .eq('from_agent_id', fromAgent.id)
+      .eq('to_agent_id', toAgent.id);
+    
+    if (skill) {
+      query = query.eq('skill', skill);
+    }
+    
+    const { error } = await query;
+    if (error) throw error;
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get leaderboard by attestation score
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    
+    const { data: agents, error } = await supabase
+      .from('agents')
+      .select('name, karma, attestation_count, attestation_score, moltbook_url, badge')
+      .gt('attestation_count', 0)
+      .order('attestation_score', { ascending: false })
+      .limit(parseInt(limit));
+    
+    if (error) throw error;
+    
+    res.json(agents || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
