@@ -107,8 +107,10 @@ app.get('/api/search', async (req, res) => {
         badge,
         is_verified,
         attestation_count,
-        attestation_score
+        attestation_score,
+        pagerank_score
       `)
+      .order('pagerank_score', { ascending: false })
       .order('karma', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
@@ -140,17 +142,22 @@ app.get('/api/search', async (req, res) => {
       }
     }
     
-    // Build results with subscription boost
+    // Build results with combined ranking
     results = agents.map(a => {
       // Apply search boost based on subscription tier
       let boost = 1.0;
       if (a.subscription_tier === 'premium') boost = 1.5;
       if (a.subscription_tier === 'enterprise') boost = 2.0;
       
+      // Combined score: pagerank (0-100) + karma bonus + attestation bonus
+      const baseScore = (a.pagerank_score || 0) + 
+                       (a.karma / 10) + 
+                       (a.attestation_score || 0);
+      
       return {
         ...a,
         skills: skillMap[a.id] || [],
-        score: a.karma * boost,
+        score: baseScore * boost,
         is_sponsored: false,
       };
     });
