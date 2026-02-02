@@ -7,20 +7,35 @@ import 'dotenv/config';
 import { supabase } from '../lib/supabase.js';
 
 // x402 payment imports (optional - gracefully handle if not configured)
-let paymentMiddleware, x402ResourceServer, HTTPFacilitatorClient, registerExactEvmScheme;
+let paymentMiddleware, x402ResourceServer, HTTPFacilitatorClient, registerExactEvmScheme, facilitatorClient;
 let x402Enabled = false;
 try {
   const x402Express = await import('@x402/express');
   const x402Core = await import('@x402/core/server');
   const x402Evm = await import('@x402/evm/exact/server');
+  const coinbaseX402 = await import('@coinbase/x402');
+  
   paymentMiddleware = x402Express.paymentMiddleware;
   x402ResourceServer = x402Core.x402ResourceServer;
   HTTPFacilitatorClient = x402Core.HTTPFacilitatorClient;
   registerExactEvmScheme = x402Evm.registerExactEvmScheme;
+  
+  // Use CDP facilitator if credentials are available, otherwise fall back to testnet
+  if (process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET) {
+    const facilitatorConfig = coinbaseX402.createFacilitatorConfig(
+      process.env.CDP_API_KEY_ID,
+      process.env.CDP_API_KEY_SECRET
+    );
+    facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig);
+    console.log('x402 payment protocol enabled with CDP facilitator (mainnet)');
+  } else {
+    // Fall back to testnet facilitator for development
+    facilitatorClient = new HTTPFacilitatorClient({ url: 'https://x402.org/facilitator' });
+    console.log('x402 payment protocol enabled with testnet facilitator (no CDP credentials)');
+  }
   x402Enabled = true;
-  console.log('x402 payment protocol enabled');
 } catch (e) {
-  console.log('x402 not available, premium API disabled');
+  console.log('x402 not available, premium API disabled:', e.message);
 }
 import { 
   stripe, 
@@ -51,47 +66,69 @@ app.use(cors());
 // x402 Premium API setup
 const GENTDEX_WALLET = process.env.GENTDEX_WALLET || '0x4C35e4Fc240165b3E45d5192D95fB7E89554DF73';
 
-if (x402Enabled) {
-  const facilitatorClient = new HTTPFacilitatorClient({
-    url: 'https://x402.org/facilitator'
-  });
-  
+// x402 payment middleware and server (global scope for route access)
+// Note: x402 is disabled on Vercel due to serverless cold start timeout issues
+// The v2 endpoints work but without payment protection until this is resolved
+let x402Active = false;
+
+if (x402Enabled && !process.env.VERCEL) {
+  // Only enable x402 middleware in non-Vercel environments (local dev)
   const x402Server = new x402ResourceServer(facilitatorClient);
   registerExactEvmScheme(x402Server);
   
-  // Premium API with x402 payments - $0.001 per query
-  app.use(
-    paymentMiddleware(
-      {
-        'GET /api/v2/search': {
-          accepts: [
-            {
-              scheme: 'exact',
-              price: '$0.001',
-              network: 'eip155:8453', // Base mainnet
-              payTo: GENTDEX_WALLET,
-            },
-          ],
-          description: 'Search GentDex agent database (programmatic access)',
-          mimeType: 'application/json',
-        },
-        'GET /api/v2/agent/:name': {
-          accepts: [
-            {
-              scheme: 'exact',
-              price: '$0.0005',
-              network: 'eip155:8453',
-              payTo: GENTDEX_WALLET,
-            },
-          ],
-          description: 'Get detailed agent profile',
-          mimeType: 'application/json',
-        },
+  // Initialize asynchronously
+  x402Server.initialize().then(() => {
+    x402Active = true;
+    console.log('x402 facilitator initialized successfully');
+  }).catch(err => {
+    console.error('x402 initialization error:', err.message);
+  });
+  
+  // Create the payment middleware
+  const x402PaymentMiddleware = paymentMiddleware(
+    {
+      'GET /api/v2/search': {
+        accepts: [
+          {
+            scheme: 'exact',
+            price: '$0.001',
+            network: 'eip155:8453', // Base mainnet
+            payTo: GENTDEX_WALLET,
+          },
+        ],
+        description: 'Search GentDex agent database (programmatic access)',
+        mimeType: 'application/json',
       },
-      x402Server,
-    ),
+      'GET /api/v2/agent/:name': {
+        accepts: [
+          {
+            scheme: 'exact',
+            price: '$0.0005',
+            network: 'eip155:8453',
+            payTo: GENTDEX_WALLET,
+          },
+        ],
+        description: 'Get detailed agent profile',
+        mimeType: 'application/json',
+      },
+    },
+    x402Server,
+    undefined,
+    undefined,
+    false,
   );
-  console.log('x402 premium API endpoints enabled at /api/v2/*');
+  
+  // Apply middleware only when initialized
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/v2/') && x402Active) {
+      return x402PaymentMiddleware(req, res, next);
+    }
+    next();
+  });
+  
+  console.log('x402 premium API endpoints enabled at /api/v2/* (local mode)');
+} else if (x402Enabled) {
+  console.log('x402 disabled on Vercel (cold start timeout issue) - v2 API available without payment');
 }
 
 // Raw body for Stripe webhooks
@@ -1292,7 +1329,8 @@ app.get('/api/health', async (req, res) => {
       status: 'ok', 
       agents: count || 0,
       database: 'supabase',
-      payments: isStripeConfigured() ? 'configured' : 'not_configured',
+      stripe: isStripeConfigured() ? 'configured' : 'not_configured',
+      x402: x402Enabled ? 'enabled' : 'disabled',
     });
   } catch (error) {
     res.json({ 

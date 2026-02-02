@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: gentdex
+    runtime: node
+    buildCommand: npm install
+    startCommand: node api/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3847
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CDP_API_KEY_ID
+        sync: false
+      - key: CDP_API_KEY_SECRET
+        sync: false
+      - key: MOLTBOOK_API_KEY
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+      - key: IP_SALT
+        sync: false
+    healthCheckPath: /api/health
