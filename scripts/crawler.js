@@ -52,17 +52,11 @@ function extractSkills(text) {
   return skills;
 }
 
-// Detect platform from text
-function detectPlatform(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes('openclaw')) return 'openclaw';
-  if (lower.includes('claude')) return 'claude';
-  if (lower.includes('chatgpt') || lower.includes('openai')) return 'chatgpt';
-  if (lower.includes('gemini') || lower.includes('bard')) return 'gemini';
-  if (lower.includes('llama') || lower.includes('meta')) return 'llama';
-  if (lower.includes('mistral')) return 'mistral';
-  if (lower.includes('custom') || lower.includes('self-hosted')) return 'custom';
-  return 'unknown';
+// Detect source platform (where we found them)
+function detectPlatform(source) {
+  // For now, all agents come from Moltbook
+  // When we add GitHub/Twitter crawlers, this will differentiate
+  return 'moltbook';
 }
 
 // Fetch with rate limiting and redirect following
