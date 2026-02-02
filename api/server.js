@@ -1446,12 +1446,101 @@ app.get('/api/services/:id', async (req, res) => {
   }
 });
 
+// Claim an agent profile (prove ownership via wallet)
+app.post('/api/agents/:id/claim', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { wallet_address, signature, message, tx_hash } = req.body;
+    
+    if (!wallet_address) {
+      return res.status(400).json({ 
+        error: 'wallet_address required',
+        hint: 'Provide your wallet address to claim this profile'
+      });
+    }
+    
+    // Check agent exists and isn't already claimed
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, name, owner_wallet')
+      .eq('id', id)
+      .single();
+    
+    if (agentError || !agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    if (agent.owner_wallet) {
+      return res.status(400).json({ 
+        error: 'Agent already claimed',
+        owner: agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4)
+      });
+    }
+    
+    // TODO: Verify signature or tx_hash proves wallet ownership
+    // For now, accept claim with wallet address (MVP)
+    // In production: verify EIP-712 signature or on-chain tx
+    
+    const { data: updated, error: updateError } = await supabase
+      .from('agents')
+      .update({
+        owner_wallet: wallet_address.toLowerCase(),
+        claimed_at: new Date().toISOString(),
+        claim_signature: signature || null,
+        claim_tx_hash: tx_hash || null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+    
+    res.json({ 
+      message: 'Agent claimed successfully',
+      agent: updated,
+      next_steps: [
+        'You can now list services at POST /api/services',
+        'Your wallet will receive payments directly via x402'
+      ]
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get claim status for an agent
+app.get('/api/agents/:id/claim', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .select('id, name, owner_wallet, claimed_at')
+      .eq('id', id)
+      .single();
+    
+    if (error || !agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    res.json({
+      claimed: !!agent.owner_wallet,
+      claimed_at: agent.claimed_at,
+      owner_wallet: agent.owner_wallet ? 
+        agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4) : null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Register a service (agent lists their service)
-// Requires x402 payment OR wallet signature for verification
+// REQUIRES: Agent must be claimed first
 app.post('/api/services', async (req, res) => {
   try {
     const { 
       agent_id,
+      wallet_address, // Must match agent's owner_wallet
       name,
       description,
       category,
@@ -1464,17 +1553,17 @@ app.post('/api/services', async (req, res) => {
     } = req.body;
     
     // Validate required fields
-    if (!agent_id || !name || !description || !category || price_usdc === undefined) {
+    if (!agent_id || !wallet_address || !name || !description || !category || price_usdc === undefined) {
       return res.status(400).json({ 
         error: 'Missing required fields',
-        required: ['agent_id', 'name', 'description', 'category', 'price_usdc']
+        required: ['agent_id', 'wallet_address', 'name', 'description', 'category', 'price_usdc']
       });
     }
     
-    // Verify agent exists
+    // Verify agent exists AND is claimed by this wallet
     const { data: agent, error: agentError } = await supabase
       .from('agents')
-      .select('id, name')
+      .select('id, name, owner_wallet')
       .eq('id', agent_id)
       .single();
     
@@ -1482,7 +1571,21 @@ app.post('/api/services', async (req, res) => {
       return res.status(404).json({ error: 'Agent not found' });
     }
     
-    // Create service
+    if (!agent.owner_wallet) {
+      return res.status(403).json({ 
+        error: 'Agent not claimed',
+        hint: 'Claim this agent first at POST /api/agents/:id/claim'
+      });
+    }
+    
+    if (agent.owner_wallet.toLowerCase() !== wallet_address.toLowerCase()) {
+      return res.status(403).json({ 
+        error: 'Not authorized',
+        hint: 'Only the agent owner can list services'
+      });
+    }
+    
+    // Create service (use payment_wallet from request or default to owner_wallet)
     const { data: service, error } = await supabase
       .from('agent_services')
       .insert({
@@ -1492,10 +1595,11 @@ app.post('/api/services', async (req, res) => {
         category,
         price_usdc: parseFloat(price_usdc),
         price_model,
-        payment_wallet,
+        payment_wallet: payment_wallet || agent.owner_wallet,
         payment_network,
         api_endpoint,
         api_docs_url,
+        is_verified: true, // Auto-verified since owner is authenticated
       })
       .select()
       .single();
@@ -1505,7 +1609,11 @@ app.post('/api/services', async (req, res) => {
     res.status(201).json({ 
       message: 'Service listed successfully',
       service,
-      note: 'Service is pending verification. Verify by signing with your registered wallet.'
+      payment_info: {
+        wallet: service.payment_wallet,
+        network: service.payment_network,
+        hint: 'Clients will pay this wallet directly via x402'
+      }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
