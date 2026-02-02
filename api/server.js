@@ -5,6 +5,23 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import 'dotenv/config';
 import { supabase } from '../lib/supabase.js';
+
+// x402 payment imports (optional - gracefully handle if not configured)
+let paymentMiddleware, x402ResourceServer, HTTPFacilitatorClient, registerExactEvmScheme;
+let x402Enabled = false;
+try {
+  const x402Express = await import('@x402/express');
+  const x402Core = await import('@x402/core/server');
+  const x402Evm = await import('@x402/evm/exact/server');
+  paymentMiddleware = x402Express.paymentMiddleware;
+  x402ResourceServer = x402Core.x402ResourceServer;
+  HTTPFacilitatorClient = x402Core.HTTPFacilitatorClient;
+  registerExactEvmScheme = x402Evm.registerExactEvmScheme;
+  x402Enabled = true;
+  console.log('x402 payment protocol enabled');
+} catch (e) {
+  console.log('x402 not available, premium API disabled');
+}
 import { 
   stripe, 
   isStripeConfigured,
@@ -30,6 +47,52 @@ const PORT = process.env.PORT || 3847;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 app.use(cors());
+
+// x402 Premium API setup
+const GENTDEX_WALLET = process.env.GENTDEX_WALLET || '0x4C35e4Fc240165b3E45d5192D95fB7E89554DF73';
+
+if (x402Enabled) {
+  const facilitatorClient = new HTTPFacilitatorClient({
+    url: 'https://x402.org/facilitator'
+  });
+  
+  const x402Server = new x402ResourceServer(facilitatorClient);
+  registerExactEvmScheme(x402Server);
+  
+  // Premium API with x402 payments - $0.001 per query
+  app.use(
+    paymentMiddleware(
+      {
+        'GET /api/v2/search': {
+          accepts: [
+            {
+              scheme: 'exact',
+              price: '$0.001',
+              network: 'eip155:8453', // Base mainnet
+              payTo: GENTDEX_WALLET,
+            },
+          ],
+          description: 'Search GentDex agent database (programmatic access)',
+          mimeType: 'application/json',
+        },
+        'GET /api/v2/agent/:name': {
+          accepts: [
+            {
+              scheme: 'exact',
+              price: '$0.0005',
+              network: 'eip155:8453',
+              payTo: GENTDEX_WALLET,
+            },
+          ],
+          description: 'Get detailed agent profile',
+          mimeType: 'application/json',
+        },
+      },
+      x402Server,
+    ),
+  );
+  console.log('x402 premium API endpoints enabled at /api/v2/*');
+}
 
 // Raw body for Stripe webhooks
 app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
@@ -206,6 +269,106 @@ app.post('/api/ads/:listingId/click', async (req, res) => {
     });
     
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== PREMIUM API (x402) ====================
+
+// Premium search endpoint - requires x402 payment
+app.get('/api/v2/search', async (req, res) => {
+  try {
+    const { q, skill, platform, limit = 100, offset = 0 } = req.query;
+    
+    let query = supabase
+      .from('agents')
+      .select('id, name, title, description, platform, karma, moltbook_url, github_url, x_handle, pagerank_score, attestation_score, created_at, updated_at')
+      .order('pagerank_score', { ascending: false, nullsFirst: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+    
+    if (skill) query = query.contains('skills_array', [skill]);
+    if (platform) query = query.eq('platform', platform);
+    if (q) query = query.or(`name.ilike.%${q}%,title.ilike.%${q}%,description.ilike.%${q}%`);
+    
+    const { data: agents, error } = await query;
+    if (error) throw error;
+    
+    // Get skills for each agent
+    const agentIds = agents.map(a => a.id);
+    let skillMap = {};
+    
+    if (agentIds.length > 0) {
+      const { data: agentSkills } = await supabase
+        .from('agent_skills')
+        .select('agent_id, skills(name)')
+        .in('agent_id', agentIds);
+      
+      for (const as of agentSkills || []) {
+        if (!skillMap[as.agent_id]) skillMap[as.agent_id] = [];
+        if (as.skills?.name) skillMap[as.agent_id].push(as.skills.name);
+      }
+    }
+    
+    const results = agents.map(a => ({
+      ...a,
+      skills: skillMap[a.id] || [],
+    }));
+    
+    const { count } = await supabase
+      .from('agents')
+      .select('*', { count: 'exact', head: true });
+    
+    res.json({
+      results,
+      total: count,
+      offset: parseInt(offset),
+      limit: parseInt(limit),
+      api_version: 'v2',
+      payment: 'x402',
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Premium agent details endpoint
+app.get('/api/v2/agent/:name', async (req, res) => {
+  try {
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('name', req.params.name)
+      .single();
+    
+    if (error || !agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    // Get skills
+    const { data: agentSkills } = await supabase
+      .from('agent_skills')
+      .select('skills(name)')
+      .eq('agent_id', agent.id);
+    
+    // Get attestations received
+    const { data: attestations } = await supabase
+      .from('attestations')
+      .select('*, attester:agents!attestations_attester_id_fkey(name, karma)')
+      .eq('attestee_id', agent.id)
+      .eq('revoked', false);
+    
+    res.json({
+      agent: {
+        ...agent,
+        skills: agentSkills?.map(s => s.skills?.name).filter(Boolean) || [],
+        attestations: attestations || [],
+      },
+      api_version: 'v2',
+      payment: 'x402',
+    });
+    
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
