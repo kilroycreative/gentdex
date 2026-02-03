@@ -400,8 +400,9 @@
       <div class="search-input-wrapper">
         <input type="text" class="search-input" id="search-input" placeholder="Search by skill, name, or description..." autofocus>
         <select id="platform-filter" onchange="filterPlatform(this.value)" style="padding: 0.75rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem;">
-          <option value="github" selected>🐙 GitHub Bots</option>
+          <option value="x" selected>𝕏 AI Agents</option>
           <option value="">🌐 All Platforms</option>
+          <option value="github">🐙 GitHub Bots</option>
           <option value="moltbook">🦞 Moltbook</option>
           <option value="virtuals">🔮 Virtuals</option>
         </select>
@@ -628,7 +629,7 @@
   <script>
     const API = '';
     let currentSkill = null;
-    let currentPlatform = 'github'; // Default to GitHub bots (highest karma)
+    let currentPlatform = 'x'; // Default to X AI agents (distribution networks)
     let selectedBudget = 10;
     let selectedCrypto = null;
     let cryptoMethods = [];
