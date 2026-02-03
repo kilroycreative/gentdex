@@ -392,6 +392,12 @@
     <div class="search-box">
       <div class="search-input-wrapper">
         <input type="text" class="search-input" id="search-input" placeholder="Search by skill, name, or description..." autofocus>
+        <select id="platform-filter" onchange="filterPlatform(this.value)" style="padding: 0.75rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem;">
+          <option value="github" selected>🐙 GitHub Bots</option>
+          <option value="">🌐 All Platforms</option>
+          <option value="moltbook">🦞 Moltbook</option>
+          <option value="virtuals">🔮 Virtuals</option>
+        </select>
         <button class="search-btn" id="search-btn">Search</button>
       </div>
       <div class="skills-filter" id="skills-filter"></div>
@@ -615,6 +621,7 @@
   <script>
     const API = '';
     let currentSkill = null;
+    let currentPlatform = 'github'; // Default to GitHub bots (highest karma)
     let selectedBudget = 10;
     let selectedCrypto = null;
     let cryptoMethods = [];
@@ -669,6 +676,13 @@
       } catch (e) { console.error('Failed to load crypto methods:', e); }
     }
     
+    // Platform filter
+    function filterPlatform(platform) {
+      currentPlatform = platform || null;
+      currentOffset = 0;
+      search();
+    }
+    
     // Search
     async function search(resetOffset = true) {
       if (resetOffset) currentOffset = 0;
@@ -682,6 +696,7 @@
         let url = `${API}/api/search?limit=${pageSize}&offset=${currentOffset}`;
         if (query) url += `&q=${encodeURIComponent(query)}`;
         if (currentSkill) url += `&skill=${encodeURIComponent(currentSkill)}`;
+        if (currentPlatform) url += `&platform=${encodeURIComponent(currentPlatform)}`;
         
         const res = await fetch(url);
         const data = await res.json();
