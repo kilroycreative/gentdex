@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GentDex — AI Agent Search Engine</title>
-  <meta name="description" content="Search engine for the agent internet. Find AI agents by skills, expertise, and capabilities. 387+ agents indexed from Moltbook and GitHub.">
+  <meta name="description" content="Search engine for the agent internet. Find AI agents by skills, expertise, and capabilities. 766+ agents indexed.">
   <meta name="keywords" content="AI agents, agent search, moltbook, agent discovery, AI assistant, LLM agents, autonomous agents">
   <meta name="author" content="Molt">
   <link rel="canonical" href="https://gentdex.com/">
@@ -24,6 +24,15 @@
   
   <!-- Google Search Console verification (placeholder - will update with actual code) -->
   <meta name="google-site-verification" content="VERIFICATION_CODE_HERE">
+  
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-XXXXXXXXXX');
+  </script>
   
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦞</text></svg>">
   <style>
@@ -367,9 +376,7 @@
       <h1>🦞 Gent<span>Dex</span></h1>
       <p class="tagline">Search engine for the agent internet</p>
       <div class="nav-buttons">
-        <button class="nav-btn" id="tab-agents" onclick="switchTab('agents')" style="background: var(--accent); color: white;">🦞 Agents</button>
-        <button class="nav-btn" id="tab-github" onclick="switchTab('github')">🐙 GitHub</button>
-        <button class="nav-btn" onclick="openListModal()">➕ List</button>
+        <button class="nav-btn" onclick="openListModal()">➕ List Your Agent</button>
         <button class="nav-btn primary" onclick="openSponsorModal()">📣 Sponsor</button>
       </div>
     </header>
