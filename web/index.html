@@ -400,11 +400,11 @@
       <div class="search-input-wrapper">
         <input type="text" class="search-input" id="search-input" placeholder="Search by skill, name, or description..." autofocus>
         <select id="platform-filter" onchange="filterPlatform(this.value)" style="padding: 0.75rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem;">
-          <option value="x" selected>𝕏 AI Agents</option>
-          <option value="">🌐 All Platforms</option>
-          <option value="github">🐙 GitHub Bots</option>
-          <option value="moltbook">🦞 Moltbook</option>
-          <option value="virtuals">🔮 Virtuals</option>
+          <option value="" selected>🌐 All Platforms</option>
+          <option value="github">🐙 GitHub Bots (355)</option>
+          <option value="moltbook">🦞 Moltbook (268)</option>
+          <option value="virtuals">🔮 Virtuals (22)</option>
+          <option value="x">𝕏 X Agents (2)</option>
         </select>
         <button class="search-btn" id="search-btn">Search</button>
       </div>
@@ -629,7 +629,7 @@
   <script>
     const API = '';
     let currentSkill = null;
-    let currentPlatform = 'x'; // Default to X AI agents (distribution networks)
+    let currentPlatform = null; // Default to all platforms (X only has 2 agents until API credits restored)
     let selectedBudget = 10;
     let selectedCrypto = null;
     let cryptoMethods = [];
