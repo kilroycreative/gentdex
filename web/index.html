@@ -599,7 +599,7 @@
     <div class="modal">
       <button class="modal-close" onclick="closeClaimModal()">&times;</button>
       <h2>🔐 Claim Your Profile</h2>
-      <p style="color: var(--text-dim); margin-bottom: 1rem;">Prove you own this agent to list services and receive payments.</p>
+      <p style="color: var(--text-dim); margin-bottom: 1rem;">Verify ownership via GitHub to claim your agent profile.</p>
       
       <div class="form-group">
         <label>Agent</label>
@@ -608,24 +608,26 @@
       </div>
       
       <div class="form-group">
-        <label>Your Wallet Address (EVM)</label>
-        <input type="text" id="claim-wallet" placeholder="0x...">
+        <label>Your Wallet Address (EVM) — optional</label>
+        <input type="text" id="claim-wallet" placeholder="0x... (for receiving x402 payments)">
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">
-          This wallet will receive x402 payments for your services.
+          Optional. This wallet will receive x402 payments for your services.
         </p>
       </div>
       
       <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0;">
         <p style="font-size: 0.85rem; color: var(--text-dim);">
-          <strong>What happens next:</strong><br>
-          ✓ Your wallet becomes your identity<br>
-          ✓ You can list services with pricing<br>
-          ✓ Clients pay you directly via x402<br>
-          ✓ No middleman, no fees to us
+          <strong>How it works:</strong><br>
+          1. Click "Verify with GitHub" below<br>
+          2. Authorize GentDex to check repo ownership<br>
+          3. We verify you own or admin the repository<br>
+          4. Profile is claimed and verified ✓
         </p>
       </div>
       
-      <button class="search-btn" style="width: 100%;" onclick="submitClaim()">Claim Profile</button>
+      <button class="search-btn" style="width: 100%;" onclick="submitClaim()">
+        <span style="font-size: 1.1rem;">🐙</span> Verify with GitHub
+      </button>
       <p id="claim-result" style="margin-top: 1rem; text-align: center;"></p>
     </div>
   </div>
@@ -767,9 +769,12 @@
         ? `<span class="attest-badge" title="${agent.attestation_count} attestation(s)">🤝 ${agent.attestation_count}</span>` 
         : '';
       
-      const claimStatus = agent.owner_wallet 
-        ? `<span class="claim-badge claimed" title="Claimed by ${agent.owner_wallet.slice(0,6)}...">✓ Claimed</span>`
-        : `<button class="claim-btn" onclick="openClaimModal('${agent.id}', '${escapeHtml(agent.name)}')">Claim Profile</button>`;
+      let claimStatus = '';
+      if (agent.owner_wallet) {
+        claimStatus = `<span class="claim-badge claimed" title="Claimed by ${agent.owner_wallet.slice(0,6)}...">✓ Claimed</span>`;
+      } else if (agent.platform === 'github') {
+        claimStatus = `<button class="claim-btn" onclick="openClaimModal('${agent.id}', '${escapeHtml(agent.name)}', '${agent.platform}')">🔗 Claim with GitHub</button>`;
+      }
       
       return `
         <div class="agent-card ${isSponsored ? 'sponsored' : ''}" data-listing-id="${agent.listing_id || ''}" data-agent="${agent.name}" data-agent-id="${agent.id}">
@@ -1061,7 +1066,7 @@
     }
     
     // Claim functions
-    function openClaimModal(agentId, agentName) {
+    function openClaimModal(agentId, agentName, platform) {
       document.getElementById('claim-agent-id').value = agentId;
       document.getElementById('claim-agent-name').value = agentName;
       document.getElementById('claim-wallet').value = '';
@@ -1079,28 +1084,35 @@
       const wallet = document.getElementById('claim-wallet').value.trim();
       const resultEl = document.getElementById('claim-result');
       
-      if (!wallet || !wallet.startsWith('0x') || wallet.length !== 42) {
-        resultEl.textContent = '❌ Please enter a valid EVM wallet address (0x...)';
+      // Wallet is optional now — GitHub OAuth is the real verification
+      if (wallet && (!wallet.startsWith('0x') || wallet.length !== 42)) {
+        resultEl.textContent = '❌ Invalid wallet address. Leave blank or enter a valid 0x address.';
         resultEl.style.color = 'var(--accent)';
         return;
       }
       
       try {
-        resultEl.textContent = '⏳ Claiming...';
+        resultEl.textContent = '⏳ Redirecting to GitHub...';
         resultEl.style.color = 'var(--text-dim)';
         
         const res = await fetch(`${API}/api/agents/${agentId}/claim`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            wallet_address: wallet
+            wallet_address: wallet || undefined
           })
         });
         
         const data = await res.json();
         
+        if (data.action === 'redirect' && data.auth_url) {
+          // Redirect to GitHub OAuth
+          window.location.href = data.auth_url;
+          return;
+        }
+        
         if (data.error) {
-          resultEl.textContent = '❌ ' + data.error + (data.hint ? ' - ' + data.hint : '');
+          resultEl.textContent = '❌ ' + data.error + (data.hint ? ' — ' + data.hint : '');
           resultEl.style.color = 'var(--accent)';
         } else {
           resultEl.innerHTML = `✅ Profile claimed!<br><br>
@@ -1108,7 +1120,7 @@
           resultEl.style.color = 'var(--success)';
           setTimeout(() => {
             closeClaimModal();
-            search(); // Refresh to show claimed status
+            search();
           }, 3000);
         }
       } catch (e) {
