@@ -55,6 +55,14 @@ import {
   markInvoicePaid,
   getPaymentInstructions,
 } from '../lib/crypto.js';
+import {
+  getGitHubAuthUrl,
+  exchangeCodeForToken,
+  getGitHubUser,
+  verifyRepoOwnership,
+  extractRepoFromUrl,
+  isConfigured as isGitHubConfigured,
+} from '../lib/github-auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1448,23 +1456,139 @@ app.get('/api/services/:id', async (req, res) => {
   }
 });
 
-// Claim an agent profile (prove ownership via wallet)
-app.post('/api/agents/:id/claim', async (req, res) => {
+// ==================== GITHUB OAUTH FOR CLAIMING ====================
+
+// Start GitHub OAuth flow for claiming
+app.get('/api/auth/github/claim/:agentId', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { wallet_address, signature, message, tx_hash } = req.body;
+    const { agentId } = req.params;
+    const { wallet_address } = req.query;
     
-    if (!wallet_address) {
-      return res.status(400).json({ 
-        error: 'wallet_address required',
-        hint: 'Provide your wallet address to claim this profile'
+    if (!isGitHubConfigured()) {
+      return res.status(503).json({
+        error: 'GitHub OAuth not configured',
+        hint: 'Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET'
       });
     }
     
-    // Check agent exists and isn't already claimed
+    // Check agent exists and is a GitHub agent
+    const { data: agent, error } = await supabase
+      .from('agents')
+      .select('id, name, platform, github_url, owner_wallet')
+      .eq('id', agentId)
+      .single();
+    
+    if (error || !agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
+    if (agent.platform !== 'github') {
+      return res.status(400).json({
+        error: 'Only GitHub agents can be claimed currently',
+        platform: agent.platform,
+        hint: 'Claiming for other platforms coming soon'
+      });
+    }
+    
+    if (agent.owner_wallet) {
+      return res.status(400).json({
+        error: 'Agent already claimed',
+        owner: agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4)
+      });
+    }
+    
+    // Redirect to GitHub OAuth
+    const authUrl = getGitHubAuthUrl(agentId, wallet_address);
+    res.redirect(authUrl);
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GitHub OAuth callback
+app.get('/api/auth/github/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    
+    if (!code || !state) {
+      return res.redirect('/claim-error?error=missing_code');
+    }
+    
+    // Decode state
+    let stateData;
+    try {
+      stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+    } catch {
+      return res.redirect('/claim-error?error=invalid_state');
+    }
+    
+    const { agentId, walletAddress } = stateData;
+    
+    // Exchange code for token
+    const accessToken = await exchangeCodeForToken(code);
+    
+    // Get agent info
     const { data: agent, error: agentError } = await supabase
       .from('agents')
-      .select('id, name, owner_wallet')
+      .select('id, name, platform, github_url, owner_wallet')
+      .eq('id', agentId)
+      .single();
+    
+    if (agentError || !agent) {
+      return res.redirect('/claim-error?error=agent_not_found');
+    }
+    
+    if (agent.owner_wallet) {
+      return res.redirect('/claim-error?error=already_claimed');
+    }
+    
+    // Verify repo ownership
+    const repoFullName = extractRepoFromUrl(agent.github_url);
+    if (!repoFullName) {
+      return res.redirect('/claim-error?error=invalid_repo_url');
+    }
+    
+    const verification = await verifyRepoOwnership(accessToken, repoFullName);
+    
+    if (!verification.verified) {
+      return res.redirect(`/claim-error?error=not_owner&reason=${encodeURIComponent(verification.reason)}`);
+    }
+    
+    // Claim successful! Update agent
+    const { error: updateError } = await supabase
+      .from('agents')
+      .update({
+        owner_wallet: walletAddress?.toLowerCase() || null,
+        claimed_at: new Date().toISOString(),
+        github_username: verification.githubUsername,
+        is_verified: true,
+      })
+      .eq('id', agentId);
+    
+    if (updateError) {
+      return res.redirect('/claim-error?error=update_failed');
+    }
+    
+    // Redirect to success page
+    res.redirect(`/agent/${agentId}?claimed=true`);
+    
+  } catch (error) {
+    console.error('GitHub callback error:', error);
+    res.redirect(`/claim-error?error=${encodeURIComponent(error.message)}`);
+  }
+});
+
+// Claim an agent profile (GitHub verification required)
+app.post('/api/agents/:id/claim', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { wallet_address } = req.body;
+    
+    // Check agent exists
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('id, name, platform, github_url, owner_wallet')
       .eq('id', id)
       .single();
     
@@ -1479,32 +1603,33 @@ app.post('/api/agents/:id/claim', async (req, res) => {
       });
     }
     
-    // TODO: Verify signature or tx_hash proves wallet ownership
-    // For now, accept claim with wallet address (MVP)
-    // In production: verify EIP-712 signature or on-chain tx
+    // Only GitHub agents can be claimed for now
+    if (agent.platform !== 'github') {
+      return res.status(400).json({
+        error: 'Only GitHub agents can be claimed currently',
+        platform: agent.platform,
+        hint: 'Claiming for X, Moltbook, and other platforms coming soon. For now, only GitHub repos with verified ownership can be claimed.'
+      });
+    }
     
-    const { data: updated, error: updateError } = await supabase
-      .from('agents')
-      .update({
-        owner_wallet: wallet_address.toLowerCase(),
-        claimed_at: new Date().toISOString(),
-        claim_signature: signature || null,
-        claim_tx_hash: tx_hash || null,
-      })
-      .eq('id', id)
-      .select()
-      .single();
+    // GitHub agents require OAuth verification
+    if (!isGitHubConfigured()) {
+      return res.status(503).json({
+        error: 'GitHub OAuth not configured on server',
+        hint: 'Contact admin to enable GitHub claiming'
+      });
+    }
     
-    if (updateError) throw updateError;
+    // Return the OAuth URL for the client to redirect to
+    const authUrl = getGitHubAuthUrl(id, wallet_address);
     
-    res.json({ 
-      message: 'Agent claimed successfully',
-      agent: updated,
-      next_steps: [
-        'You can now list services at POST /api/services',
-        'Your wallet will receive payments directly via x402'
-      ]
+    res.json({
+      message: 'GitHub verification required',
+      action: 'redirect',
+      auth_url: authUrl,
+      hint: 'Redirect user to auth_url to verify GitHub repo ownership'
     });
+    
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
