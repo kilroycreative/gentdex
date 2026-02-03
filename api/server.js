@@ -321,6 +321,8 @@ app.get('/api/v2/search', async (req, res) => {
     let query = supabase
       .from('agents')
       .select('id, name, title, description, platform, karma, moltbook_url, github_url, x_handle, pagerank_score, attestation_score, owner_wallet, claimed_at, created_at, updated_at')
+      .order('karma', { ascending: false, nullsFirst: false })
+      .order('attestation_score', { ascending: false, nullsFirst: false })
       .order('pagerank_score', { ascending: false, nullsFirst: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
