@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deploy — GentDex Agent Launchpad</title>
+  <meta name="description" content="Deploy on-chain trading agents with one click. Non-custodial escrow, Solana-native, pay with crypto.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦞</text></svg>">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #2a2a3a;
+      --text: #e0e0e8;
+      --text-dim: #8888a0;
+      --accent: #ff6b4a;
+      --accent-dim: #cc5540;
+      --success: #4ade80;
+      --premium: #fbbf24;
+      --danger: #ef4444;
+      --purple: #a78bfa;
+    }
+    
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+
+    /* Header */
+    header { text-align: center; margin-bottom: 2.5rem; }
+    h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h1 .logo { color: var(--accent); }
+    .tagline { color: var(--text-dim); font-size: 1.05rem; margin-bottom: 1rem; }
+    
+    .back-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      display: inline-block;
+      margin-bottom: 1rem;
+    }
+    .back-link:hover { color: var(--accent); }
+
+    /* Steps indicator */
+    .steps {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 2.5rem;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      position: relative;
+    }
+    .step .num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      background: var(--surface);
+      border: 2px solid var(--border);
+    }
+    .step.active { color: var(--text); }
+    .step.active .num { border-color: var(--accent); color: var(--accent); background: rgba(255,107,74,0.15); }
+    .step.done .num { border-color: var(--success); color: var(--success); background: rgba(74,222,128,0.15); }
+    .step-line {
+      width: 40px;
+      height: 2px;
+      background: var(--border);
+      align-self: center;
+    }
+    .step-line.done { background: var(--success); }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .card h3 { font-size: 1rem; color: var(--text-dim); margin-bottom: 0.75rem; font-weight: 500; }
+
+    /* Strategy cards */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .strategy-card {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .strategy-card:hover { border-color: var(--text-dim); }
+    .strategy-card.selected { border-color: var(--accent); background: rgba(255,107,74,0.05); }
+    .strategy-card.disabled { opacity: 0.5; cursor: not-allowed; }
+    .strategy-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .strategy-name { font-weight: 600; font-size: 1.05rem; margin-bottom: 0.25rem; }
+    .strategy-desc { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .strategy-tag {
+      display: inline-block;
+      background: rgba(255,107,74,0.15);
+      color: var(--accent);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .strategy-tag.coming { background: rgba(136,136,160,0.15); color: var(--text-dim); }
+
+    /* Config section */
+    .config-section { display: none; }
+    .config-section.visible { display: block; }
+    
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 600px) {
+      .form-row { grid-template-columns: 1fr; }
+    }
+    
+    .form-group { margin-bottom: 1rem; }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.4rem;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .form-group .hint { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem; }
+
+    /* Duration pills */
+    .duration-pills {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .duration-pill {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      min-width: 80px;
+    }
+    .duration-pill:hover { border-color: var(--text-dim); }
+    .duration-pill.selected { border-color: var(--accent); background: rgba(255,107,74,0.1); }
+    .duration-pill .days { font-weight: 700; font-size: 1.1rem; }
+    .duration-pill .label { font-size: 0.75rem; color: var(--text-dim); }
+
+    /* Fee breakdown */
+    .fee-breakdown {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .fee-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.4rem 0;
+      font-size: 0.95rem;
+    }
+    .fee-row.dim { color: var(--text-dim); }
+    .fee-row.total {
+      border-top: 1px solid var(--border);
+      margin-top: 0.5rem;
+      padding-top: 0.75rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+    .fee-row .val { font-family: 'SF Mono', 'Fira Code', monospace; }
+    .fee-row .val.accent { color: var(--accent); }
+
+    /* Deploy button */
+    .deploy-btn {
+      width: 100%;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 1rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.02em;
+    }
+    .deploy-btn:hover { background: var(--accent-dim); transform: translateY(-1px); }
+    .deploy-btn:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; transform: none; }
+
+    /* Session panel */
+    .session-panel { display: none; }
+    .session-panel.visible { display: block; }
+
+    .session-status {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem;
+      background: var(--bg);
+      border-radius: 10px;
+      margin-bottom: 1rem;
+    }
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .status-dot.pending { background: var(--premium); }
+    .status-dot.expired { background: var(--danger); animation: none; }
+
+    .escrow-address {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      background: var(--bg);
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      word-break: break-all;
+      margin: 0.75rem 0;
+    }
+
+    .action-btns {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .action-btn.danger { border-color: var(--danger); color: var(--danger); }
+    .action-btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+    /* Security badge */
+    .security-section {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+    .security-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    .security-item .icon { font-size: 1rem; }
+
+    /* Devnet banner */
+    .devnet-banner {
+      background: rgba(251,191,36,0.1);
+      border: 1px solid var(--premium);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--premium);
+      margin-bottom: 1.5rem;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 2rem 0;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">← Back to GentDex</a>
+
+    <header>
+      <h1>🚀 <span class="logo">Deploy</span> Agent</h1>
+      <p class="tagline">One-click on-chain trading agents. Non-custodial. Your keys, your funds.</p>
+    </header>
+
+    <div class="devnet-banner">
+      ⚠️ <strong>Devnet Only</strong> — This is a development preview. No real funds are used.
+    </div>
+
+    <!-- Steps -->
+    <div class="steps">
+      <div class="step active" id="step-ind-1"><span class="num">1</span> Strategy</div>
+      <div class="step-line" id="line-1"></div>
+      <div class="step" id="step-ind-2"><span class="num">2</span> Configure</div>
+      <div class="step-line" id="line-2"></div>
+      <div class="step" id="step-ind-3"><span class="num">3</span> Deploy</div>
+    </div>
+
+    <!-- Step 1: Choose Strategy -->
+    <div class="card" id="step-1">
+      <h2>Choose a Strategy</h2>
+      <div class="strategy-grid">
+        <div class="strategy-card" data-strategy="copy-trade" onclick="selectStrategy(this)">
+          <div class="strategy-icon">👁️</div>
+          <div class="strategy-name">Copy Trading</div>
+          <div class="strategy-desc">Follow a top trader's wallet and automatically replicate their trades in real-time.</div>
+          <span class="strategy-tag">Live</span>
+        </div>
+        <div class="strategy-card disabled" data-strategy="grid">
+          <div class="strategy-icon">📊</div>
+          <div class="strategy-name">Grid Trading</div>
+          <div class="strategy-desc">Place buy/sell orders at preset intervals above and below a set price.</div>
+          <span class="strategy-tag coming">Coming Soon</span>
+        </div>
+        <div class="strategy-card disabled" data-strategy="dca">
+          <div class="strategy-icon">📅</div>
+          <div class="strategy-name">DCA Bot</div>
+          <div class="strategy-desc">Dollar-cost average into any token on a custom schedule.</div>
+          <span class="strategy-tag coming">Coming Soon</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Configure -->
+    <div class="config-section" id="step-2">
+      <div class="card">
+        <h2>Configure Your Agent</h2>
+
+        <div class="form-group" id="copy-config">
+          <label>Target Wallet Address</label>
+          <input type="text" id="target-wallet" placeholder="Enter Solana wallet to copy..." spellcheck="false">
+          <div class="hint">The wallet whose trades your bot will replicate. Find top traders on <a href="https://gmgn.ai" target="_blank" style="color:var(--accent)">GMGN</a> or <a href="https://birdeye.so" target="_blank" style="color:var(--accent)">Birdeye</a>.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Duration</label>
+          <div class="duration-pills">
+            <div class="duration-pill" data-days="1" onclick="selectDuration(this)">
+              <div class="days">1</div>
+              <div class="label">day</div>
+            </div>
+            <div class="duration-pill selected" data-days="7" onclick="selectDuration(this)">
+              <div class="days">7</div>
+              <div class="label">days</div>
+            </div>
+            <div class="duration-pill" data-days="14" onclick="selectDuration(this)">
+              <div class="days">14</div>
+              <div class="label">days</div>
+            </div>
+            <div class="duration-pill" data-days="30" onclick="selectDuration(this)">
+              <div class="days">30</div>
+              <div class="label">days</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Deposit Amount (SOL)</label>
+          <input type="number" id="deposit-amount" value="5" min="0.1" step="0.1" oninput="updateFees()">
+          <div class="hint">Recommended: 2–10 SOL depending on strategy. Minimum 0.1 SOL.</div>
+        </div>
+      </div>
+
+      <!-- Fee Breakdown -->
+      <div class="card">
+        <h2>Fee Breakdown</h2>
+        <div class="fee-breakdown">
+          <div class="fee-row dim">
+            <span>Deposit</span>
+            <span class="val" id="fee-deposit">5.000 SOL</span>
+          </div>
+          <div class="fee-row dim">
+            <span>Setup fee (2.5%)</span>
+            <span class="val" id="fee-setup">−0.125 SOL</span>
+          </div>
+          <div class="fee-row dim">
+            <span>Compute (<span id="fee-days">7</span> days × 0.01 SOL/day)</span>
+            <span class="val" id="fee-compute">−0.070 SOL</span>
+          </div>
+          <div class="fee-row dim">
+            <span>Est. gas (swaps)</span>
+            <span class="val">~0.005 SOL</span>
+          </div>
+          <div class="fee-row total">
+            <span>Trading Balance</span>
+            <span class="val accent" id="fee-balance">4.800 SOL</span>
+          </div>
+        </div>
+
+        <div class="security-section">
+          <div class="security-item"><span class="icon">🔒</span> Non-custodial escrow</div>
+          <div class="security-item"><span class="icon">🔑</span> Withdraw anytime</div>
+          <div class="security-item"><span class="icon">⛓️</span> On-chain verified</div>
+          <div class="security-item"><span class="icon">🛡️</span> Whitelisted DEXs only</div>
+        </div>
+      </div>
+
+      <button class="deploy-btn" id="deploy-btn" onclick="deploy()" disabled>
+        Connect Wallet to Deploy
+      </button>
+      <div style="text-align:center;margin-top:0.75rem;font-size:0.85rem;color:var(--text-dim)">
+        Solana Devnet • Program: <code style="color:var(--purple)">9hyscAyf...C5RJ</code>
+      </div>
+    </div>
+
+    <!-- Step 3: Active Session -->
+    <div class="session-panel" id="step-3">
+      <div class="card">
+        <h2>🟢 Agent Active</h2>
+        
+        <div class="session-status">
+          <div class="status-dot" id="session-dot"></div>
+          <div>
+            <strong id="session-strategy">Copy Trading</strong>
+            <div style="color:var(--text-dim);font-size:0.85rem" id="session-target"></div>
+          </div>
+          <div style="margin-left:auto;text-align:right">
+            <div style="font-size:0.85rem;color:var(--text-dim)">Expires</div>
+            <div id="session-expires" style="font-weight:600"></div>
+          </div>
+        </div>
+
+        <h3>Escrow Vault</h3>
+        <div class="escrow-address" id="session-escrow"></div>
+
+        <div class="form-row" style="margin-top:1rem">
+          <div>
+            <div style="color:var(--text-dim);font-size:0.85rem">Trading Balance</div>
+            <div style="font-size:1.5rem;font-weight:700;color:var(--success)" id="session-balance">4.800 SOL</div>
+          </div>
+          <div>
+            <div style="color:var(--text-dim);font-size:0.85rem">Fees Paid</div>
+            <div style="font-size:1.5rem;font-weight:700;color:var(--text-dim)" id="session-fees">0.200 SOL</div>
+          </div>
+        </div>
+
+        <h3 style="margin-top:1rem">Telegram Bot</h3>
+        <div style="background:var(--bg);padding:0.75rem;border-radius:8px;border:1px solid var(--border);font-size:0.9rem;">
+          Control your agent via Telegram: <a href="https://t.me/gentdex_bot" target="_blank" style="color:var(--accent);font-weight:600">@gentdex_bot</a>
+          <div style="color:var(--text-dim);font-size:0.8rem;margin-top:0.25rem">/status • /pause • /withdraw • /extend</div>
+        </div>
+
+        <div class="action-btns">
+          <button class="action-btn" onclick="pauseSession()">⏸ Pause</button>
+          <button class="action-btn" onclick="extendSession()">⏱ Extend</button>
+          <button class="action-btn danger" onclick="withdrawSession()">💸 Withdraw All</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Trade History</h2>
+        <div id="trade-history" style="color:var(--text-dim);font-size:0.9rem;padding:1rem 0;text-align:center">
+          No trades yet. Your agent is watching for trades from the target wallet...
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>Built by <a href="/">GentDex</a> 🦞 • <a href="https://explorer.solana.com/address/9hyscAyfR2puBXWFoGzeBq3QtSn5e83B7AUkcS1qC5RJ?cluster=devnet" target="_blank">View Program on Explorer</a></p>
+      <p style="margin-top:0.5rem">Non-custodial • Open source • <a href="https://github.com/kilroycreative/gentdex" target="_blank">GitHub</a></p>
+    </footer>
+  </div>
+
+  <script>
+    // =========================================================
+    // State
+    // =========================================================
+    let state = {
+      strategy: null,
+      targetWallet: '',
+      durationDays: 7,
+      depositAmount: 5,
+      walletConnected: false,
+      walletAddress: null,
+      sessionActive: false,
+    };
+
+    const PROGRAM_ID = '9hyscAyfR2puBXWFoGzeBq3QtSn5e83B7AUkcS1qC5RJ';
+    const FEE_BPS = 250; // 2.5%
+    const COMPUTE_PER_DAY = 0.01; // SOL
+
+    // =========================================================
+    // Strategy selection
+    // =========================================================
+    function selectStrategy(el) {
+      if (el.classList.contains('disabled')) return;
+
+      document.querySelectorAll('.strategy-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      state.strategy = el.dataset.strategy;
+
+      // Show config
+      document.getElementById('step-2').classList.add('visible');
+      
+      // Update step indicators
+      document.getElementById('step-ind-1').classList.remove('active');
+      document.getElementById('step-ind-1').classList.add('done');
+      document.getElementById('line-1').classList.add('done');
+      document.getElementById('step-ind-2').classList.add('active');
+
+      updateFees();
+      checkReady();
+
+      // Smooth scroll
+      document.getElementById('step-2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // =========================================================
+    // Duration selection
+    // =========================================================
+    function selectDuration(el) {
+      document.querySelectorAll('.duration-pill').forEach(p => p.classList.remove('selected'));
+      el.classList.add('selected');
+      state.durationDays = parseInt(el.dataset.days);
+      updateFees();
+    }
+
+    // =========================================================
+    // Fee calculation
+    // =========================================================
+    function updateFees() {
+      const deposit = parseFloat(document.getElementById('deposit-amount').value) || 0;
+      state.depositAmount = deposit;
+      const days = state.durationDays;
+
+      const setupFee = deposit * FEE_BPS / 10000;
+      const computeFee = days * COMPUTE_PER_DAY;
+      const tradingBalance = Math.max(0, deposit - setupFee - computeFee - 0.005);
+
+      document.getElementById('fee-deposit').textContent = deposit.toFixed(3) + ' SOL';
+      document.getElementById('fee-setup').textContent = '−' + setupFee.toFixed(3) + ' SOL';
+      document.getElementById('fee-days').textContent = days;
+      document.getElementById('fee-compute').textContent = '−' + computeFee.toFixed(3) + ' SOL';
+      document.getElementById('fee-balance').textContent = tradingBalance.toFixed(3) + ' SOL';
+
+      checkReady();
+    }
+
+    // =========================================================
+    // Wallet connection (Phantom)
+    // =========================================================
+    async function connectWallet() {
+      try {
+        if (!window.solana || !window.solana.isPhantom) {
+          window.open('https://phantom.app/', '_blank');
+          return;
+        }
+        const resp = await window.solana.connect();
+        state.walletConnected = true;
+        state.walletAddress = resp.publicKey.toString();
+        
+        document.getElementById('deploy-btn').textContent = `Deploy Agent (${state.depositAmount} SOL)`;
+        checkReady();
+      } catch (err) {
+        console.error('Wallet connection failed:', err);
+      }
+    }
+
+    // =========================================================
+    // Readiness check
+    // =========================================================
+    function checkReady() {
+      const btn = document.getElementById('deploy-btn');
+      const targetWallet = document.getElementById('target-wallet').value.trim();
+      state.targetWallet = targetWallet;
+
+      if (!state.walletConnected) {
+        btn.textContent = 'Connect Wallet to Deploy';
+        btn.disabled = false;
+        btn.onclick = connectWallet;
+        return;
+      }
+
+      const deposit = state.depositAmount;
+      const ready = state.strategy && targetWallet.length >= 32 && deposit >= 0.1;
+      
+      btn.disabled = !ready;
+      btn.textContent = ready 
+        ? `Deploy Agent (${deposit.toFixed(2)} SOL)` 
+        : 'Fill in all fields to deploy';
+      btn.onclick = ready ? deploy : null;
+    }
+
+    // Listen for input changes
+    document.getElementById('target-wallet')?.addEventListener('input', checkReady);
+
+    // =========================================================
+    // Deploy (simulated for dev)
+    // =========================================================
+    async function deploy() {
+      const btn = document.getElementById('deploy-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Deploying...';
+
+      // Simulate deployment delay
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Generate mock session data
+      const mockEscrow = generateMockAddress();
+      const expiresAt = new Date(Date.now() + state.durationDays * 86400000);
+      const setupFee = state.depositAmount * FEE_BPS / 10000;
+      const computeFee = state.durationDays * COMPUTE_PER_DAY;
+      const tradingBalance = state.depositAmount - setupFee - computeFee - 0.005;
+
+      // Show session panel
+      document.getElementById('step-2').classList.remove('visible');
+      document.getElementById('step-1').style.display = 'none';
+      document.getElementById('step-3').classList.add('visible');
+
+      // Update step indicators
+      document.getElementById('step-ind-2').classList.remove('active');
+      document.getElementById('step-ind-2').classList.add('done');
+      document.getElementById('line-2').classList.add('done');
+      document.getElementById('step-ind-3').classList.add('active');
+
+      // Fill session data
+      document.getElementById('session-escrow').textContent = mockEscrow;
+      document.getElementById('session-balance').textContent = tradingBalance.toFixed(3) + ' SOL';
+      document.getElementById('session-fees').textContent = (setupFee + computeFee).toFixed(3) + ' SOL';
+      document.getElementById('session-expires').textContent = expiresAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      document.getElementById('session-target').textContent = 'Copying: ' + truncAddr(state.targetWallet);
+
+      state.sessionActive = true;
+      document.querySelector('.steps').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // =========================================================
+    // Session actions (simulated)
+    // =========================================================
+    function pauseSession() {
+      const dot = document.getElementById('session-dot');
+      dot.classList.toggle('pending');
+      const btn = event.target;
+      if (dot.classList.contains('pending')) {
+        btn.textContent = '▶ Resume';
+      } else {
+        btn.textContent = '⏸ Pause';
+      }
+    }
+
+    function extendSession() {
+      alert('Extension flow coming soon — will allow adding more compute time via x402 payment.');
+    }
+
+    function withdrawSession() {
+      if (!confirm('Withdraw all funds? This will stop your trading agent.')) return;
+      
+      const dot = document.getElementById('session-dot');
+      dot.classList.add('expired');
+      dot.classList.remove('pending');
+      document.getElementById('session-balance').textContent = '0.000 SOL';
+      document.getElementById('session-balance').style.color = 'var(--text-dim)';
+      document.querySelector('.action-btns').innerHTML = '<div style="color:var(--success);text-align:center;width:100%;padding:0.75rem">✅ Funds withdrawn to your wallet</div>';
+    }
+
+    // =========================================================
+    // Helpers
+    // =========================================================
+    function generateMockAddress() {
+      const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      let addr = '';
+      for (let i = 0; i < 44; i++) addr += chars[Math.floor(Math.random() * chars.length)];
+      return addr;
+    }
+
+    function truncAddr(addr) {
+      if (!addr || addr.length < 8) return addr;
+      return addr.slice(0, 4) + '...' + addr.slice(-4);
+    }
+
+    // Auto-detect Phantom wallet
+    window.addEventListener('load', () => {
+      if (window.solana && window.solana.isPhantom) {
+        window.solana.on('connect', () => {
+          state.walletConnected = true;
+          state.walletAddress = window.solana.publicKey.toString();
+          checkReady();
+        });
+      }
+    });
+  </script>
+</body>
+</html>

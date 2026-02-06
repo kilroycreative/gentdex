@@ -144,6 +144,10 @@ app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.static(join(__dirname, '../web')));
 
+// Deploy API routes
+import deployRoutes from './deploy/routes.js';
+app.use('/api/deploy', deployRoutes);
+
 // Helper: hash IP for privacy-preserving analytics
 function hashIP(ip) {
   return crypto.createHash('sha256').update(ip + process.env.IP_SALT || 'agentindex').digest('hex').slice(0, 16);
@@ -154,7 +158,7 @@ function hashIP(ip) {
 // Search agents (with sponsored listings and pagination)
 app.get('/api/search', async (req, res) => {
   try {
-    const { q, skill, platform, limit = 50, offset = 0 } = req.query;
+    const { q, skill, platform, category, limit = 50, offset = 0 } = req.query;
     const ipHash = hashIP(req.ip);
     
     let results = [];
@@ -189,12 +193,27 @@ app.get('/api/search', async (req, res) => {
       console.log('Sponsored listings query failed (table may not exist):', e.message);
     }
     
+    // If skill filter, get matching agent IDs first
+    let skillAgentIds = null;
+    if (skill) {
+      const { data: skillMatches } = await supabase
+        .from('agent_skills')
+        .select('agent_id, skills!inner(name)')
+        .eq('skills.name', skill);
+      skillAgentIds = (skillMatches || []).map(s => s.agent_id);
+      if (skillAgentIds.length === 0) {
+        return res.json({ sponsored, results: [], total: 0, showing: 0, offset: parseInt(offset), limit: parseInt(limit) });
+      }
+    }
+    
     // Get total count first
     let countQuery = supabase
       .from('agents')
       .select('*', { count: 'exact', head: true });
     
     if (platform) countQuery = countQuery.eq('platform', platform);
+    if (category) countQuery = countQuery.eq('category', category);
+    if (skillAgentIds) countQuery = countQuery.in('id', skillAgentIds);
     if (q) countQuery = countQuery.or(`name.ilike.%${q}%,title.ilike.%${q}%,description.ilike.%${q}%`);
     
     const { count: totalCount } = await countQuery;
@@ -217,14 +236,25 @@ app.get('/api/search', async (req, res) => {
         attestation_count,
         attestation_score,
         pagerank_score,
-        x_handle
+        x_handle,
+        category,
+        quality_score,
+        github_stars
       `)
-      .order('pagerank_score', { ascending: false })
+      .order('quality_score', { ascending: false })
       .order('karma', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
     if (platform) {
       query = query.eq('platform', platform);
+    }
+    
+    if (category) {
+      query = query.eq('category', category);
+    }
+    
+    if (skillAgentIds) {
+      query = query.in('id', skillAgentIds);
     }
     
     // Text search with ilike if query provided
@@ -270,11 +300,6 @@ app.get('/api/search', async (req, res) => {
         is_sponsored: false,
       };
     });
-    
-    // Filter by skill if needed
-    if (skill) {
-      results = results.filter(a => a.skills.includes(skill));
-    }
     
     // Sort by boosted score
     results.sort((a, b) => b.score - a.score);
@@ -328,14 +353,15 @@ app.get('/api/v2/search', async (req, res) => {
     
     let query = supabase
       .from('agents')
-      .select('id, name, title, description, platform, karma, moltbook_url, github_url, x_handle, pagerank_score, attestation_score, owner_wallet, claimed_at, created_at, updated_at')
+      .select('id, name, title, description, platform, karma, moltbook_url, github_url, x_handle, pagerank_score, attestation_score, owner_wallet, claimed_at, created_at, updated_at, category, quality_score, github_stars')
+      .order('quality_score', { ascending: false, nullsFirst: false })
       .order('karma', { ascending: false, nullsFirst: false })
-      .order('attestation_score', { ascending: false, nullsFirst: false })
       .order('pagerank_score', { ascending: false, nullsFirst: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
     if (skill) query = query.contains('skills_array', [skill]);
     if (platform) query = query.eq('platform', platform);
+    if (req.query.category) query = query.eq('category', req.query.category);
     if (q) query = query.or(`name.ilike.%${q}%,title.ilike.%${q}%,description.ilike.%${q}%`);
     
     const { data: agents, error } = await query;
@@ -1456,210 +1482,8 @@ app.get('/api/services/:id', async (req, res) => {
   }
 });
 
-// ==================== GITHUB OAUTH FOR CLAIMING ====================
-
-// Start GitHub OAuth flow for claiming
-app.get('/api/auth/github/claim/:agentId', async (req, res) => {
-  try {
-    const { agentId } = req.params;
-    const { wallet_address } = req.query;
-    
-    if (!isGitHubConfigured()) {
-      return res.status(503).json({
-        error: 'GitHub OAuth not configured',
-        hint: 'Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET'
-      });
-    }
-    
-    // Check agent exists and is a GitHub agent
-    const { data: agent, error } = await supabase
-      .from('agents')
-      .select('id, name, platform, github_url, owner_wallet')
-      .eq('id', agentId)
-      .single();
-    
-    if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-    
-    if (agent.platform !== 'github') {
-      return res.status(400).json({
-        error: 'Only GitHub agents can be claimed currently',
-        platform: agent.platform,
-        hint: 'Claiming for other platforms coming soon'
-      });
-    }
-    
-    if (agent.owner_wallet) {
-      return res.status(400).json({
-        error: 'Agent already claimed',
-        owner: agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4)
-      });
-    }
-    
-    // Redirect to GitHub OAuth
-    const authUrl = getGitHubAuthUrl(agentId, wallet_address);
-    res.redirect(authUrl);
-    
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// GitHub OAuth callback
-app.get('/api/auth/github/callback', async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    
-    if (!code || !state) {
-      return res.redirect('/claim-error?error=missing_code');
-    }
-    
-    // Decode state
-    let stateData;
-    try {
-      stateData = JSON.parse(Buffer.from(state, 'base64').toString());
-    } catch {
-      return res.redirect('/claim-error?error=invalid_state');
-    }
-    
-    const { agentId, walletAddress } = stateData;
-    
-    // Exchange code for token
-    const accessToken = await exchangeCodeForToken(code);
-    
-    // Get agent info
-    const { data: agent, error: agentError } = await supabase
-      .from('agents')
-      .select('id, name, platform, github_url, owner_wallet')
-      .eq('id', agentId)
-      .single();
-    
-    if (agentError || !agent) {
-      return res.redirect('/claim-error?error=agent_not_found');
-    }
-    
-    if (agent.owner_wallet) {
-      return res.redirect('/claim-error?error=already_claimed');
-    }
-    
-    // Verify repo ownership
-    const repoFullName = extractRepoFromUrl(agent.github_url);
-    if (!repoFullName) {
-      return res.redirect('/claim-error?error=invalid_repo_url');
-    }
-    
-    const verification = await verifyRepoOwnership(accessToken, repoFullName);
-    
-    if (!verification.verified) {
-      return res.redirect(`/claim-error?error=not_owner&reason=${encodeURIComponent(verification.reason)}`);
-    }
-    
-    // Claim successful! Update agent
-    const { error: updateError } = await supabase
-      .from('agents')
-      .update({
-        owner_wallet: walletAddress?.toLowerCase() || null,
-        claimed_at: new Date().toISOString(),
-        github_username: verification.githubUsername,
-        is_verified: true,
-      })
-      .eq('id', agentId);
-    
-    if (updateError) {
-      return res.redirect('/claim-error?error=update_failed');
-    }
-    
-    // Redirect to success page
-    res.redirect(`/agent/${agentId}?claimed=true`);
-    
-  } catch (error) {
-    console.error('GitHub callback error:', error);
-    res.redirect(`/claim-error?error=${encodeURIComponent(error.message)}`);
-  }
-});
-
-// Claim an agent profile (GitHub verification required)
-app.post('/api/agents/:id/claim', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { wallet_address } = req.body;
-    
-    // Check agent exists
-    const { data: agent, error: agentError } = await supabase
-      .from('agents')
-      .select('id, name, platform, github_url, owner_wallet')
-      .eq('id', id)
-      .single();
-    
-    if (agentError || !agent) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-    
-    if (agent.owner_wallet) {
-      return res.status(400).json({ 
-        error: 'Agent already claimed',
-        owner: agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4)
-      });
-    }
-    
-    // Only GitHub agents can be claimed for now
-    if (agent.platform !== 'github') {
-      return res.status(400).json({
-        error: 'Only GitHub agents can be claimed currently',
-        platform: agent.platform,
-        hint: 'Claiming for X, Moltbook, and other platforms coming soon. For now, only GitHub repos with verified ownership can be claimed.'
-      });
-    }
-    
-    // GitHub agents require OAuth verification
-    if (!isGitHubConfigured()) {
-      return res.status(503).json({
-        error: 'GitHub OAuth not configured on server',
-        hint: 'Contact admin to enable GitHub claiming'
-      });
-    }
-    
-    // Return the OAuth URL for the client to redirect to
-    const authUrl = getGitHubAuthUrl(id, wallet_address);
-    
-    res.json({
-      message: 'GitHub verification required',
-      action: 'redirect',
-      auth_url: authUrl,
-      hint: 'Redirect user to auth_url to verify GitHub repo ownership'
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get claim status for an agent
-app.get('/api/agents/:id/claim', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const { data: agent, error } = await supabase
-      .from('agents')
-      .select('id, name, owner_wallet, claimed_at')
-      .eq('id', id)
-      .single();
-    
-    if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-    
-    res.json({
-      claimed: !!agent.owner_wallet,
-      claimed_at: agent.claimed_at,
-      owner_wallet: agent.owner_wallet ? 
-        agent.owner_wallet.slice(0, 6) + '...' + agent.owner_wallet.slice(-4) : null
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// ==================== CLAIMING REMOVED ====================
+// Profile claiming has been removed. Agents are indexed, not claimed.
 
 // Register a service (agent lists their service)
 // REQUIRES: Agent must be claimed first

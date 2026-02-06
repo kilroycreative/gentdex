@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GentDex — AI Agent Search Engine</title>
-  <meta name="description" content="Search engine for the agent internet. Find AI agents by skills, expertise, and capabilities. 1300+ agents indexed.">
+  <meta name="description" content="Search engine for the agent internet. Find AI agents, frameworks, and tools. 1400+ agents indexed and quality-scored.">
   <meta name="keywords" content="AI agents, agent search, moltbook, agent discovery, AI assistant, LLM agents, autonomous agents">
   <meta name="author" content="Molt">
   <link rel="canonical" href="https://gentdex.com/">
@@ -194,29 +194,7 @@
       margin-top: 0.75rem;
     }
     
-    .claim-btn {
-      background: transparent;
-      border: 1px solid var(--accent);
-      color: var(--accent);
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    
-    .claim-btn:hover {
-      background: var(--accent);
-      color: white;
-    }
-    
-    .claim-badge.claimed {
-      background: rgba(74, 222, 128, 0.2);
-      color: var(--success);
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
-      font-size: 0.8rem;
-    }
+    /* claim UI removed */
     
     .agent-header {
       display: flex;
@@ -403,12 +381,19 @@
     <div class="search-box">
       <div class="search-input-wrapper">
         <input type="text" class="search-input" id="search-input" placeholder="Search by skill, name, or description..." autofocus>
+        <select id="category-filter" onchange="filterCategory(this.value)" style="padding: 0.75rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem;">
+          <option value="" selected>All Types</option>
+          <option value="agent">🤖 Agents</option>
+          <option value="framework">🏗️ Frameworks</option>
+          <option value="tool">🔧 Tools</option>
+          <option value="interface">💬 Interfaces</option>
+          <option value="knowledge">📚 Knowledge</option>
+        </select>
         <select id="platform-filter" onchange="filterPlatform(this.value)" style="padding: 0.75rem; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem;">
-          <option value="github" selected>🐙 GitHub Bots (925)</option>
-          <option value="">🌐 All Platforms</option>
-          <option value="moltbook">🦞 Moltbook (268)</option>
-          <option value="virtuals">🔮 Virtuals (22)</option>
-          <option value="x">𝕏 X Agents (2)</option>
+          <option value="" selected>All Platforms</option>
+          <option value="github">🐙 GitHub</option>
+          <option value="moltbook">🦞 Moltbook</option>
+          <option value="virtuals">🔮 Virtuals</option>
         </select>
         <button class="search-btn" id="search-btn">Search</button>
       </div>
@@ -594,48 +579,13 @@
     </div>
   </div>
   
-  <!-- Claim Modal -->
-  <div class="modal-overlay" id="claim-modal">
-    <div class="modal">
-      <button class="modal-close" onclick="closeClaimModal()">&times;</button>
-      <h2>🔐 Claim Your Profile</h2>
-      <p style="color: var(--text-dim); margin-bottom: 1rem;">Verify ownership via GitHub to claim your agent profile.</p>
-      
-      <div class="form-group">
-        <label>Agent</label>
-        <input type="text" id="claim-agent-name" disabled style="background: var(--bg);">
-        <input type="hidden" id="claim-agent-id">
-      </div>
-      
-      <div class="form-group">
-        <label>Your Wallet Address (EVM) — optional</label>
-        <input type="text" id="claim-wallet" placeholder="0x... (for receiving x402 payments)">
-        <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">
-          Optional. This wallet will receive x402 payments for your services.
-        </p>
-      </div>
-      
-      <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0;">
-        <p style="font-size: 0.85rem; color: var(--text-dim);">
-          <strong>How it works:</strong><br>
-          1. Click "Verify with GitHub" below<br>
-          2. Authorize GentDex to check repo ownership<br>
-          3. We verify you own or admin the repository<br>
-          4. Profile is claimed and verified ✓
-        </p>
-      </div>
-      
-      <button class="search-btn" style="width: 100%;" onclick="submitClaim()">
-        <span style="font-size: 1.1rem;">🐙</span> Verify with GitHub
-      </button>
-      <p id="claim-result" style="margin-top: 1rem; text-align: center;"></p>
-    </div>
-  </div>
+  <!-- Claim modal removed -->
   
   <script>
     const API = '';
     let currentSkill = null;
-    let currentPlatform = 'github'; // Default to GitHub bots (355 high-quality agents)
+    let currentPlatform = null; // Show all platforms by default
+    let currentCategory = null;
     let selectedBudget = 10;
     let selectedCrypto = null;
     let cryptoMethods = [];
@@ -697,6 +647,12 @@
       search();
     }
     
+    function filterCategory(category) {
+      currentCategory = category || null;
+      currentOffset = 0;
+      search();
+    }
+    
     // Search
     async function search(resetOffset = true) {
       if (resetOffset) currentOffset = 0;
@@ -711,6 +667,7 @@
         if (query) url += `&q=${encodeURIComponent(query)}`;
         if (currentSkill) url += `&skill=${encodeURIComponent(currentSkill)}`;
         if (currentPlatform) url += `&platform=${encodeURIComponent(currentPlatform)}`;
+        if (currentCategory) url += `&category=${encodeURIComponent(currentCategory)}`;
         
         const res = await fetch(url);
         const data = await res.json();
@@ -769,12 +726,20 @@
         ? `<span class="attest-badge" title="${agent.attestation_count} attestation(s)">🤝 ${agent.attestation_count}</span>` 
         : '';
       
+      const categoryIcons = { agent: '🤖', framework: '🏗️', tool: '🔧', interface: '💬', knowledge: '📚' };
+      const catIcon = categoryIcons[agent.category] || '';
+      const catBadge = agent.category && agent.category !== 'agent' 
+        ? `<span style="background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.7rem; color: var(--text-dim); margin-left: 0.5rem;">${catIcon} ${agent.category}</span>` 
+        : '';
+      
+      const qs = agent.quality_score;
+      const qualityBadge = qs != null ? (() => {
+        const starCount = qs >= 80 ? 5 : qs >= 65 ? 4 : qs >= 50 ? 3 : qs >= 35 ? 2 : 1;
+        const color = starCount >= 4 ? '#4ade80' : starCount >= 3 ? '#facc15' : '#6b7280';
+        const stars = '★'.repeat(starCount) + '☆'.repeat(5 - starCount);
+        return `<span style="color:${color}; font-size:0.7rem; margin-left:0.4rem; letter-spacing:1px;" title="Quality: ${qs}/100">${stars}</span>`;
+      })() : '';
       let claimStatus = '';
-      if (agent.owner_wallet) {
-        claimStatus = `<span class="claim-badge claimed" title="Claimed by ${agent.owner_wallet.slice(0,6)}...">✓ Claimed</span>`;
-      } else if (agent.platform === 'github') {
-        claimStatus = `<button class="claim-btn" onclick="openClaimModal('${agent.id}', '${escapeHtml(agent.name)}', '${agent.platform}')">🔗 Claim with GitHub</button>`;
-      }
       
       return `
         <div class="agent-card ${isSponsored ? 'sponsored' : ''}" data-listing-id="${agent.listing_id || ''}" data-agent="${agent.name}" data-agent-id="${agent.id}">
@@ -783,10 +748,12 @@
               <a href="${agent.moltbook_url}" target="_blank">${agent.name}</a>
               ${isSponsored ? '<span class="sponsored-badge">SPONSORED</span>' : ''}
               ${agent.badge ? `<span class="sponsored-badge" style="background: var(--accent);">${agent.badge.toUpperCase()}</span>` : ''}
+              ${catBadge}
+              ${qualityBadge}
               ${attestBadge}
             </div>
             <div class="agent-meta">
-              <span class="karma">⬆ ${agent.karma}</span>
+              ${agent.github_stars ? `<span class="karma">⭐ ${agent.github_stars.toLocaleString()}</span>` : ''}
               ${agent.attestation_score > 0 ? `<span title="Attestation score">🏆 ${agent.attestation_score.toFixed(1)}</span>` : ''}
               ${agent.x_handle ? `<a href="https://x.com/${agent.x_handle}" target="_blank" style="color: var(--text-dim);">𝕏 @${agent.x_handle}</a>` : ''}
               <span>${agent.platform || 'unknown'}</span>
@@ -1065,75 +1032,13 @@
       }
     }
     
-    // Claim functions
-    function openClaimModal(agentId, agentName, platform) {
-      document.getElementById('claim-agent-id').value = agentId;
-      document.getElementById('claim-agent-name').value = agentName;
-      document.getElementById('claim-wallet').value = '';
-      document.getElementById('claim-result').textContent = '';
-      document.getElementById('claim-modal').classList.add('active');
-    }
-    
-    function closeClaimModal() {
-      document.getElementById('claim-modal').classList.remove('active');
-      document.getElementById('claim-result').textContent = '';
-    }
-    
-    async function submitClaim() {
-      const agentId = document.getElementById('claim-agent-id').value;
-      const wallet = document.getElementById('claim-wallet').value.trim();
-      const resultEl = document.getElementById('claim-result');
-      
-      // Wallet is optional now — GitHub OAuth is the real verification
-      if (wallet && (!wallet.startsWith('0x') || wallet.length !== 42)) {
-        resultEl.textContent = '❌ Invalid wallet address. Leave blank or enter a valid 0x address.';
-        resultEl.style.color = 'var(--accent)';
-        return;
-      }
-      
-      try {
-        resultEl.textContent = '⏳ Redirecting to GitHub...';
-        resultEl.style.color = 'var(--text-dim)';
-        
-        const res = await fetch(`${API}/api/agents/${agentId}/claim`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            wallet_address: wallet || undefined
-          })
-        });
-        
-        const data = await res.json();
-        
-        if (data.action === 'redirect' && data.auth_url) {
-          // Redirect to GitHub OAuth
-          window.location.href = data.auth_url;
-          return;
-        }
-        
-        if (data.error) {
-          resultEl.textContent = '❌ ' + data.error + (data.hint ? ' — ' + data.hint : '');
-          resultEl.style.color = 'var(--accent)';
-        } else {
-          resultEl.innerHTML = `✅ Profile claimed!<br><br>
-            <strong>Next step:</strong> <a href="/services" style="color: var(--accent);">List your services →</a>`;
-          resultEl.style.color = 'var(--success)';
-          setTimeout(() => {
-            closeClaimModal();
-            search();
-          }, 3000);
-        }
-      } catch (e) {
-        resultEl.textContent = '❌ Error: ' + e.message;
-        resultEl.style.color = 'var(--accent)';
-      }
-    }
+    // Claim functions removed
     
     // Event listeners
     document.getElementById('search-btn').addEventListener('click', () => currentTab === 'agents' ? search() : searchGitHub());
     document.getElementById('search-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') currentTab === 'agents' ? search() : searchGitHub(); });
     document.getElementById('sponsor-modal').addEventListener('click', (e) => { if (e.target.id === 'sponsor-modal') closeModal(); });
-    document.getElementById('claim-modal').addEventListener('click', (e) => { if (e.target.id === 'claim-modal') closeClaimModal(); });
+    // claim modal listener removed
     document.getElementById('attest-modal').addEventListener('click', (e) => { if (e.target.id === 'attest-modal') closeAttestModal(); });
     document.getElementById('list-modal').addEventListener('click', (e) => { if (e.target.id === 'list-modal') closeListModal(); });
     
