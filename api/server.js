@@ -155,6 +155,41 @@ function hashIP(ip) {
 
 // ==================== SEARCH API ====================
 
+// Get single agent by ID or GitHub URL (for trust-guard SDK)
+app.get('/api/agents/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Try to find by GitHub URL first (most common case for SDK)
+    let query = supabase
+      .from('agents')
+      .select('id, name, trust_score, trust_badge, github_url, github_stars, category, description, title')
+      .limit(1);
+    
+    // Check if ID looks like a GitHub URL
+    if (id.includes('github.com') || id.includes('/')) {
+      query = query.ilike('github_url', `%${id}%`);
+    } else {
+      // Try exact ID match
+      query = query.eq('id', id);
+    }
+    
+    const { data, error } = await query.maybeSingle();
+    
+    if (error || !data) {
+      return res.status(404).json({ 
+        error: 'Agent not found',
+        message: `No agent found matching: ${id}`
+      });
+    }
+    
+    res.json(data);
+  } catch (error) {
+    console.error('Agent lookup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Search agents (with sponsored listings and pagination)
 app.get('/api/search', async (req, res) => {
   try {
@@ -230,6 +265,7 @@ app.get('/api/search', async (req, res) => {
         platform,
         languages,
         moltbook_url,
+        github_url,
         subscription_tier,
         badge,
         is_verified,
@@ -239,7 +275,9 @@ app.get('/api/search', async (req, res) => {
         x_handle,
         category,
         quality_score,
-        github_stars
+        github_stars,
+        trust_score,
+        trust_badge
       `)
       .order('quality_score', { ascending: false })
       .order('karma', { ascending: false })
